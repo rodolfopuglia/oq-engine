@@ -20,6 +20,7 @@ import operator
 import numpy
 
 from openquake.baselib.general import AccumDict
+from openquake.baselib.zeromq import Socket, zmq
 from openquake.baselib.python3compat import zip, encode
 from openquake.hazardlib.stats import set_rlzs_stats
 from openquake.hazardlib.calc.stochastic import TWO32
@@ -69,7 +70,8 @@ def event_based_risk(riskinputs, riskmodel, param, monitor):
     """
     I = param['insured_losses'] + 1
     L = len(riskmodel.lti)
-    param['lrs_dt'] = numpy.dtype([('rlzi', U16), ('ratios', (F32, (L * I,)))])
+    alt_dt = numpy.dtype([('eid', U64), ('aid', U32),
+                          ('losses', (F32, (L * I,)))])
     for ri in riskinputs:
         with monitor('getting hazard'):
             ri.hazard_getter.init()
@@ -94,7 +96,9 @@ def event_based_risk(riskinputs, riskmodel, param, monitor):
             if len(out.eids) == 0:  # this happens for sites with no events
                 continue
             r = out.rlzi
-            agglosses = numpy.zeros((len(out.eids), L*I), F32)
+            E = len(out.eids)
+            agglosses = numpy.zeros((E, L*I), F32)
+            alt = numpy.zeros(E * len(out.assets), alt_dt)
             for l, loss_ratios in enumerate(out):
                 if loss_ratios is None:  # for GMFs below the minimum_intensity
                     continue
@@ -105,6 +109,12 @@ def event_based_risk(riskinputs, riskmodel, param, monitor):
                     idx = aid2idx[aid]
                     aval = asset.value(loss_type)
                     losses = aval * ratios
+                    for e, loss in enumerate(losses):
+                        rec = alt[e * a]
+                        rec['eid'] = out.eids[e]
+                        rec['aid'] = aid
+                        for i in range(I):
+                            rec['losses'][l + L * i] = loss[i]
                     if 'builder' in param:
                         with mon:  # this is the heaviest part
                             for i in range(I):
@@ -126,6 +136,9 @@ def event_based_risk(riskinputs, riskmodel, param, monitor):
             # have millions of small outputs with big data transfer and slow
             # saving time
             acc += dict(zip(out.eids, agglosses))
+            with Socket('tcp://127.0.0.1:1930', zmq.PUSH, 'connect') as sock:
+                sock.send(alt)
+                sock.send('stop')
 
         if 'builder' in param:
             clp = param['conditional_loss_poes']
