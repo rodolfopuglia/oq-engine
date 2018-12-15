@@ -34,7 +34,10 @@ def make_figure(indices, n_sites, oq, pmaps):
 
     fig = plt.figure()
     n_poes = len(oq.poes)
-    uhs_by_rlz = [calc.make_uhs(pmap, oq, n_sites) for pmap in pmaps]
+    uhs_by_rlz = []
+    for pmap in pmaps:
+        hmap = calc.make_hmap_array(pmap, oq.imtls, oq.poes, n_sites)
+        uhs_by_rlz.append(calc.make_uhs(hmap, oq))
     periods = oq.imt_periods()
     for i, site in enumerate(indices):
         for j, poe in enumerate(oq.poes):
@@ -45,9 +48,10 @@ def make_figure(indices, n_sites, oq, pmaps):
                 'UHS on site %d, poe=%s, period in seconds' % (site, poe))
             if j == 0:  # set Y label only on the leftmost graph
                 ax.set_ylabel('SA')
+            fields = [f for f in uhs_by_rlz[0].dtype.names
+                      if f.startswith(str(poe))]
             for r, all_uhs in enumerate(uhs_by_rlz):
-                uhs = list(all_uhs[str(poe)][site])
-                ax.plot(periods, uhs, label=r)
+                ax.plot(periods, list(all_uhs[site][fields]), label=r)
     plt.legend()
     return plt
 
