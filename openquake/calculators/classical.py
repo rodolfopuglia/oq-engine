@@ -190,13 +190,16 @@ class ClassicalCalculator(base.HazardCalculator):
         """
         with self.monitor('saving statistics', autoflush=True):
             for kind in pmap_by_kind:  # i.e. kind == ('hcurves', 'mean')
-                pmap = pmap_by_kind[kind]
-                if pmap:
-                    key = '%s/%s' % kind
-                    dset = self.datastore.getitem(key)
-                    for sid in pmap:
-                        arr = pmap[sid].array[:, 0]
-                        dset[sid] = arr
+                pmaps = pmap_by_kind[kind]
+                key = '%s/%s' % kind
+                dset = self.datastore.getitem(key)
+                if isinstance(pmaps, list):
+                    for r, pmap in enumerate(pmaps):
+                        for sid in pmap:
+                            dset[sid, :, r] = pmap[sid].array[:, 0]
+                else:  # individual pmap
+                    for sid in pmaps:
+                        dset[sid] = pmaps[sid].array[:, 0]
             self.datastore.flush()
 
     def post_execute(self, pmap_by_grp_id):
@@ -249,14 +252,11 @@ class ClassicalCalculator(base.HazardCalculator):
         R = len(self.rlzs_assoc.realizations)
         names = [name for name, _ in hstats]
         if R > 1 and oq.individual_curves:
-            for r in range(R):
-                names.append('rlz-%03d' % r)
+            names.append('rlzs')
         for name in names:
-            self.datastore.create_dset('hcurves/%s' % name, F32, (N, L))
-            self.datastore.set_attrs('hcurves/%s' % name, nbytes=N * L * 4)
+            self.create_dset('hcurves/%s' % name, N, L, R)
             if oq.poes:
-                self.datastore.create_dset('hmaps/' + name, F32, (N, P * I))
-                self.datastore.set_attrs('hmaps/' + name, nbytes=N * P * I * 4)
+                self.create_dset('hmaps/' + name, N, P * I, R)
         logging.info('Building hazard statistics')
         ct = oq.concurrent_tasks
         iterargs = ((getters.PmapGetter(parent, self.rlzs_assoc, t.sids),
@@ -264,6 +264,14 @@ class ClassicalCalculator(base.HazardCalculator):
                     for t in self.sitecol.split_in_tiles(ct))
         parallel.Starmap(build_hazard_stats, iterargs, self.monitor()).reduce(
             self.save_hazard_stats)
+
+    def create_dset(self, name, N, L, R):
+        if name.endswith('/rlzs'):
+            self.datastore.create_dset(name, F32, (N, L, R))
+            self.datastore.set_attrs(name, nbytes=N * L * R * 4)
+        else:
+            self.datastore.create_dset(name, F32, (N, L))
+            self.datastore.set_attrs(name, nbytes=N * L * 4)
 
 
 @base.calculators.add('preclassical')
@@ -322,11 +330,10 @@ def build_hazard_stats(pgetter, hstats, individual_curves, monitor):
                     compute_pmap_stats(hmaps, [stat], weights, imtls))
 
     if len(pmaps) > 1 and individual_curves:
-        for r, pmap in enumerate(pmaps):
-            key = 'rlz-%03d' % r
-            pmap_by_kind['hcurves', key] = pmap
-            if pgetter.poes and hmaps:
-                pmap_by_kind['hmaps', key] = hmaps[r]
-            elif pgetter.poes:
-                pmap_by_kind['hmaps', key] = calc.make_hmap(pmap, imtls, poes)
+        pmap_by_kind['hcurves', 'rlzs'] = pmaps
+        if pgetter.poes and hmaps:
+            pmap_by_kind['hmaps', 'rlzs'] = hmaps
+        elif pgetter.poes:
+            pmap_by_kind['hmaps', 'rlzs'] = [calc.make_hmap(pmap, imtls, poes)
+                                             for pmap in pmaps]
     return pmap_by_kind
