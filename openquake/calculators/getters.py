@@ -156,9 +156,7 @@ class PmapGetter(object):
 
     def items(self, kind=''):
         """
-        Extract probability maps from the datastore, possibly generating
-        on the fly the ones corresponding to the individual realizations.
-        Yields pairs (tag, pmap).
+        Yields pairs (kind, array).
 
         :param kind:
             the kind of PoEs to extract; if not given, returns the realization
