@@ -54,6 +54,16 @@ F32 = numpy.float32
 TWO16 = 2 ** 16
 
 
+def weights_by_imt(weights, imts):
+    """
+    :returns: an array of shape (R, M)
+    """
+    arr = numpy.zeros((len(weights), len(imts)))
+    for i, imt in enumerate(imts):
+        arr[:, i] = [w[imt] for w in weights]
+    return arr
+
+
 class InvalidCalculationID(Exception):
     """
     Raised when running a post-calculation on top of an incompatible
@@ -681,6 +691,9 @@ class HazardCalculator(BaseCalculator):
         if not self.rlzs_assoc:
             raise RuntimeError('Empty logic tree: too much filtering?')
         self.datastore['csm_info'] = self.csm.info
+        self.datastore['csm_info/weights'] = weights_by_imt(
+            [rlz.weight for rlz in self.rlzs_assoc.realizations],
+            self.oqparam.imtls)
         R = len(self.rlzs_assoc.realizations)
         if 'event_based' in self.oqparam.calculation_mode and R >= TWO16:
             # rlzi is 16 bit integer in the GMFs, so there is hard limit or R
