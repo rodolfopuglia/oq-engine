@@ -470,7 +470,7 @@ def export_uhs_xml(ekey, dstore):
     sitemesh = get_mesh(dstore['sitecol'].complete)
     key, kind, fmt = get_kkf(ekey)
     fnames = []
-    periods = oq.imt_periods()
+    periods = [imt.period for imt in oq.imt_periods()]
     metadata = get_metadata(rlzs_assoc.realizations, kind)
     uhs = get_hazard(dstore, 'uhs', kind)
     for poe in oq.poes:
