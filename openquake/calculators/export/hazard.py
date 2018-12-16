@@ -358,7 +358,7 @@ def get_kkf(ekey):
     if '/' in key:
         key, kind = key.split('/', 1)
     else:
-        kind = 'stats'
+        kind = 'all'
     return key, kind, fmt
 
 
