@@ -358,14 +358,37 @@ def get_kkf(ekey):
     if '/' in key:
         key, kind = key.split('/', 1)
     else:
-        kind = ''
+        kind = 'stats'
     return key, kind, fmt
 
 
-@export.add(('hcurves', 'csv'), ('hmaps', 'csv'), ('uhs', 'csv'))
-def export_hcurves_csv(ekey, dstore):
+def get_hazard(dstore, key, kind):
     """
-    Exports the hazard curves into several .csv files
+    :param dstore: a DataStore
+    :param key: 'hcurves', 'hmaps' or 'uhs'
+    :param kind: 'rlz-XXX', 'mean', 'quantile-XX', 'std', ...
+    """
+    uhs = key == 'uhs'
+    if uhs:
+        key = 'hmaps'
+    if kind.startswith('rlz-'):
+        rlzi = int(kind[4:])
+        arr = dstore[key + '/rlzs'][:, :, rlzi]
+    else:
+        arr = dstore[key + '/' + kind].value
+    if key == 'hcurves':
+        return arr
+    oq = dstore['oqparam']
+    arr = arr.view(oq.hmap_dt())[:, 0]
+    if uhs:
+        arr = calc.make_uhs(arr, oq)
+    return arr
+
+
+@export.add(('hcurves', 'csv'), ('hmaps', 'csv'), ('uhs', 'csv'))
+def export_hazard_csv(ekey, dstore):
+    """
+    Exports the hazard outputs into several .csv files
 
     :param ekey: export key, i.e. a pair (datastore key, fmt)
     :param dstore: datastore object
@@ -375,30 +398,39 @@ def export_hcurves_csv(ekey, dstore):
     sitecol = dstore['sitecol']
     sitemesh = get_mesh(sitecol)
     key, kind, fmt = get_kkf(ekey)
+    assert key in 'hcurves hmaps uhs', key
     fnames = []
     checksum = dstore.get_attr('/', 'checksum32')
-    hmap_dt = oq.hmap_dt()
-    for kind, hcurves in PmapGetter(dstore, rlzs_assoc).items(kind):
+    if kind == 'rlzs':
+        kinds = ['rlz-%03d' % rlz.ordinal for rlz in rlzs_assoc.realizations]
+    elif kind == 'stats':
+        kinds = [stat for stat, _ in oq.hazard_stats()]
+    elif kind == 'all':
+        kinds = ['rlz-%03d' % rlz.ordinal for rlz in rlzs_assoc.realizations] \
+                + [stat for stat, _ in oq.hazard_stats()]
+    else:
+        kinds = [kind]
+    for kind in kinds:
+        try:
+            hazard = get_hazard(dstore, key, kind)
+        except KeyError:  # for missing hmaps
+            continue
         fname = hazard_curve_name(dstore, (key, fmt), kind, rlzs_assoc)
-        comment = _comment(rlzs_assoc, kind, oq.investigation_time)
-        if (key in ('hmaps', 'uhs') and oq.uniform_hazard_spectra or
-                oq.hazard_maps):
-            hmap = dstore['hmaps/' + kind].value.view(hmap_dt)[:, 0]
+        comment = (_comment(rlzs_assoc, kind, oq.investigation_time) +
+                   ', checksum=%d' % checksum)
         if key == 'uhs' and oq.poes and oq.uniform_hazard_spectra:
-            uhs_curves = calc.make_uhs(hmap, oq)
             writers.write_csv(
-                fname, util.compose_arrays(sitemesh, uhs_curves),
-                comment=comment + ', checksum=%d' % checksum)
+                fname, util.compose_arrays(sitemesh, hazard),
+                comment=comment)
             fnames.append(fname)
         elif key == 'hmaps' and oq.poes and oq.hazard_maps:
             fnames.extend(
-                export_hmaps_csv(ekey, fname, sitemesh, hmap,
-                                 comment + ', checksum=%d' % checksum))
+                export_hmaps_csv(ekey, fname, sitemesh, hazard, comment))
         elif key == 'hcurves':
             fnames.extend(
                 export_hcurves_by_imt_csv(
-                    ekey, kind, rlzs_assoc, fname, sitecol, hcurves, oq,
-                    checksum))
+                    ekey, kind, rlzs_assoc, fname, sitecol, hazard,
+                    oq, checksum))
     return sorted(fnames)
 
 
@@ -435,29 +467,26 @@ def get_metadata(realizations, kind):
 def export_uhs_xml(ekey, dstore):
     oq = dstore['oqparam']
     rlzs_assoc = dstore['csm_info'].get_rlzs_assoc()
-    pgetter = PmapGetter(dstore, rlzs_assoc)
     sitemesh = get_mesh(dstore['sitecol'].complete)
     key, kind, fmt = get_kkf(ekey)
     fnames = []
     periods = oq.imt_periods()
-    for kind, hcurves in pgetter.items(kind):
-        metadata = get_metadata(rlzs_assoc.realizations, kind)
-        hmap = calc.make_hmap_array(hcurves, oq.imtls, oq.poes, len(sitemesh))
-        uhs = calc.make_uhs(hmap, oq)
-        for poe in oq.poes:
-            poe_str = '%s-' % poe
-            fname = hazard_curve_name(
-                dstore, (key, fmt), kind + '-%s' % poe, rlzs_assoc)
-            writer = hazard_writers.UHSXMLWriter(
-                fname, periods=periods, poe=poe,
-                investigation_time=oq.investigation_time, **metadata)
-            data = []
-            for site, curve in zip(sitemesh, uhs):
-                levels = [curve[f] for f in curve.dtype.names
-                          if f.startswith(poe_str)]
-                data.append(UHS(levels, Location(site)))
-            writer.serialize(data)
-            fnames.append(fname)
+    metadata = get_metadata(rlzs_assoc.realizations, kind)
+    uhs = get_hazard(dstore, 'uhs', kind)
+    for poe in oq.poes:
+        poe_str = '%s-' % poe
+        fname = hazard_curve_name(
+            dstore, (key, fmt), kind + '-%s' % poe, rlzs_assoc)
+        writer = hazard_writers.UHSXMLWriter(
+            fname, periods=periods, poe=poe,
+            investigation_time=oq.investigation_time, **metadata)
+        data = []
+        for site, curve in zip(sitemesh, uhs):
+            levels = [curve[f] for f in curve.dtype.names
+                      if f.startswith(poe_str)]
+            data.append(UHS(levels, Location(site)))
+        writer.serialize(data)
+        fnames.append(fname)
     return sorted(fnames)
 
 

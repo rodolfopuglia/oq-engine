@@ -36,7 +36,7 @@ from openquake.qa_tests_data.classical import (
 class ClassicalTestCase(CalculatorTestCase):
 
     def assert_curves_ok(self, expected, test_dir, delta=None, **kw):
-        kind = kw.pop('kind', '')
+        kind = kw.pop('kind', 'all')
         self.run_calc(test_dir, 'job.ini', **kw)
         ds = self.calc.datastore
         got = (export(('hcurves/' + kind, 'csv'), ds) +
@@ -138,10 +138,7 @@ class ClassicalTestCase(CalculatorTestCase):
     @attr('qa', 'hazard', 'classical')
     def test_case_7(self):
         self.assert_curves_ok(
-            ['hazard_curve-mean.csv',
-             'hazard_curve-smltp_b1-gsimltp_b1.csv',
-             'hazard_curve-smltp_b2-gsimltp_b1.csv'],
-            case_7.__file__, kind='all')
+            ['hazard_curve-mean.csv'], case_7.__file__, kind='mean')
 
         # exercising extract/mean_std_curves
         dict(extract(self.calc.datastore, 'mean_std_curves'))
@@ -195,35 +192,18 @@ class ClassicalTestCase(CalculatorTestCase):
     def test_case_13(self):
         self.assert_curves_ok(
             ['hazard_curve-mean_PGA.csv', 'hazard_curve-mean_SA(0.2).csv',
-             'hazard_map-mean.csv'], case_13.__file__)
+             'hazard_map-mean.csv'], case_13.__file__, kind='stats')
 
         # test recomputing the hazard maps
         self.run_calc(
             case_13.__file__, 'job.ini', exports='csv',
             hazard_calculation_id=str(self.calc.datastore.calc_id),
             gsim_logic_tree_file='', source_model_logic_tree_file='')
-        [fname] = export(('hmaps', 'csv'), self.calc.datastore)
+        fname = export(('hmaps', 'csv'), self.calc.datastore)[0]
         self.assertEqualFiles('expected/hazard_map-mean.csv', fname,
                               delta=1E-5)
 
-        # test extract/hazard/rlzs
-        dic = dict(extract(self.calc.datastore, 'hazard/rlzs'))
-        hcurves = sorted(k for k in dic if k.startswith('hcurves'))
-        hmaps = sorted(k for k in dic if k.startswith('hmaps'))
-        self.assertEqual(hcurves, ['hcurves/PGA/rlz-000',
-                                   'hcurves/PGA/rlz-001',
-                                   'hcurves/PGA/rlz-002',
-                                   'hcurves/PGA/rlz-003',
-                                   'hcurves/SA(0.2)/rlz-000',
-                                   'hcurves/SA(0.2)/rlz-001',
-                                   'hcurves/SA(0.2)/rlz-002',
-                                   'hcurves/SA(0.2)/rlz-003'])
-        self.assertEqual(hmaps, ['hmaps/poe-0.1/rlz-000',
-                                 'hmaps/poe-0.1/rlz-001',
-                                 'hmaps/poe-0.1/rlz-002',
-                                 'hmaps/poe-0.1/rlz-003'])
-
-        # test extract/hcurves/rlz-0 also works, used by the npz exports
+        # test extract/hcurves/rlz-0, used by the npz exports
         haz = dict(extract(self.calc.datastore, 'hcurves'))
         self.assertEqual(sorted(haz), ['all', 'investigation_time'])
         self.assertEqual(
@@ -267,10 +247,10 @@ hazard_curve-std-SA(0.1).csv
 hazard_uhs-max.csv
 hazard_uhs-mean.csv
 hazard_uhs-std.csv
-'''.split(), case_15.__file__, delta=1E-6)
+        '''.split(), case_15.__file__, kind='stats', delta=1E-6)
 
         # test UHS XML export
-        fnames = [f for f in export(('uhs', 'xml'), self.calc.datastore)
+        fnames = [f for f in export(('uhs/mean', 'xml'), self.calc.datastore)
                   if 'mean' in f]
         self.assertEqualFiles('expected/hazard_uhs-mean-0.01.xml', fnames[0])
         self.assertEqualFiles('expected/hazard_uhs-mean-0.1.xml', fnames[1])
@@ -324,7 +304,7 @@ hazard_uhs-std.csv
             ['hazard_curve-mean.csv',
              'quantile_curve-0.1.csv',
              'quantile_curve-0.9.csv'],
-            case_16.__file__)
+            case_16.__file__, kind='stats')
 
         # test single realization export
         [fname] = export(('hcurves/rlz-3', 'csv'), self.calc.datastore)
@@ -369,7 +349,7 @@ hazard_uhs-std.csv
             'hazard_curve-mean_PGA.csv',
             'hazard_curve-mean_SA(0.1).csv',
             'hazard_curve-mean_SA(0.15).csv',
-        ], case_19.__file__, delta=1E-7)
+        ], case_19.__file__, kind='mean', delta=1E-7)
 
     @attr('qa', 'hazard', 'classical')
     def test_case_20(self):  # Source geometry enumeration
@@ -433,7 +413,8 @@ hazard_uhs-std.csv
 
     @attr('qa', 'hazard', 'classical')
     def test_case_23(self):  # filtering away on TRT
-        self.assert_curves_ok(['hazard_curve.csv'], case_23.__file__)
+        self.assert_curves_ok(
+            ['hazard_curve.csv'], case_23.__file__, kind='mean')
         checksum = self.calc.datastore['/'].attrs['checksum32']
         self.assertEqual(checksum, 3211843635)
 
@@ -453,7 +434,8 @@ hazard_uhs-std.csv
 
     @attr('qa', 'hazard', 'classical')
     def test_case_26(self):  # split YoungsCoppersmith1985MFD
-        self.assert_curves_ok(['hazard_curve-rlz-000.csv'], case_26.__file__)
+        self.assert_curves_ok(
+            ['hazard_curve-rlz-000.csv'], case_26.__file__)
 
     @attr('qa', 'hazard', 'classical')
     def test_case_27(self):  # Nankai mutex model

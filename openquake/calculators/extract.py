@@ -149,45 +149,6 @@ def extract_asset_tags(dstore, tagname):
         yield tagname, barray(tagcol.gen_tags(tagname))
 
 
-@extract.add('hazard')
-def extract_hazard(dstore, what):
-    """
-    Extracts hazard curves and possibly hazard maps and/or uniform hazard
-    spectra. Use it as /extract/hazard/mean or /extract/hazard/rlz-0, etc
-    """
-    oq = dstore['oqparam']
-    sitecol = dstore['sitecol']
-    rlzs_assoc = dstore['csm_info'].get_rlzs_assoc()
-    yield 'sitecol', sitecol
-    yield 'oqparam', oq
-    yield 'imtls', oq.imtls
-    yield 'realizations', dstore['csm_info'].rlzs
-    yield 'checksum32', dstore['/'].attrs['checksum32']
-    nsites = len(sitecol)
-    M = len(oq.imtls)
-    P = len(oq.poes)
-    for statname, pmap in getters.PmapGetter(dstore, rlzs_assoc).items(what):
-        for imt in oq.imtls:
-            key = 'hcurves/%s/%s' % (imt, statname)
-            arr = numpy.zeros((nsites, len(oq.imtls[imt])))
-            for sid in pmap:
-                arr[sid] = pmap[sid].array[oq.imtls(imt), 0]
-            logging.info('extracting %s', key)
-            yield key, arr
-        try:
-            hmap = dstore['hmaps/' + statname]
-        except KeyError:  # for statname=rlz-XXX
-            hmap = calc.make_hmap(pmap, oq.imtls, oq.poes)
-        for p, poe in enumerate(oq.poes):
-            key = 'hmaps/poe-%s/%s' % (poe, statname)
-            arr = numpy.zeros((nsites, M))
-            idx = [m * P + p for m in range(M)]
-            for sid in pmap:
-                arr[sid] = hmap[sid].array[idx, 0]
-            logging.info('extracting %s', key)
-            yield key, arr
-
-
 def get_mesh(sitecol, complete=True):
     """
     :returns:
@@ -237,11 +198,12 @@ def _get_dict(dstore, name, imts, imls):
         dt = numpy.dtype([(str(iml), F32) for iml in imls])
         dtlist.append((imt, dt))
     for statname, curves in dstore[name].items():
-        dic[statname] = curves.value.view(dtlist).flatten()
+        if statname != 'rlzs':
+            dic[statname] = curves.value.view(dtlist).flatten()
     return dic
 
 
-@extract.add('hcurves')
+@extract.add('hcurves')  # used in the npz export
 def extract_hcurves(dstore, what):
     """
     Extracts hazard curves. Use it as /extract/hcurves/mean or
@@ -256,7 +218,7 @@ def extract_hcurves(dstore, what):
     return hazard_items(dic, mesh, investigation_time=oq.investigation_time)
 
 
-@extract.add('hmaps')
+@extract.add('hmaps')  # used in the npz export
 def extract_hmaps(dstore, what):
     """
     Extracts hazard maps. Use it as /extract/hmaps/mean or
@@ -269,7 +231,7 @@ def extract_hmaps(dstore, what):
     return hazard_items(dic, mesh, investigation_time=oq.investigation_time)
 
 
-@extract.add('uhs')
+@extract.add('uhs')  # used in the npz export
 def extract_uhs(dstore, what):
     """
     Extracts uniform hazard spectra. Use it as /extract/uhs/mean or

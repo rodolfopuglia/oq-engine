@@ -166,17 +166,19 @@ class PmapGetter(object):
         if not kind or kind == 'all':  # use default
             if 'hcurves' in self.dstore:
                 for k in sorted(self.dstore['hcurves']):
-                    yield k, self.dstore['hcurves/' + k].value
+                    if k == 'rlzs':
+                        for rlzi in range(num_rlzs):
+                            hcurves = self.dstore['hcurves/rlzs'][:, :, rlzi]
+                            yield 'rlz-%03d' % rlzi, hcurves
+                    else:
+                        yield k, self.dstore['hcurves/' + k].value
             elif num_rlzs == 1:
                 yield 'mean', self.get(0)
-            return
-        if 'poes' in self.dstore and kind in ('rlzs', 'all'):
+        elif 'poes' in self.dstore and kind == 'rlzs':
             for rlzi in range(num_rlzs):
-                hcurves = self.get(rlzi)
+                hcurves = self.dstore['hcurves/rlzs'][:, :, rlzi]
                 yield 'rlz-%03d' % rlzi, hcurves
-        elif 'poes' in self.dstore and kind.startswith('rlz-'):
-            yield kind, self.get(int(kind[4:]))
-        if 'hcurves' in self.dstore and kind == 'stats':
+        elif 'hcurves' in self.dstore and kind == 'stats':
             for k in sorted(self.dstore['hcurves']):
                 if not k.startswith('rlz'):
                     yield k, self.dstore['hcurves/' + k].value
