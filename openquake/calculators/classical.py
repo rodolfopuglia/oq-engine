@@ -308,10 +308,9 @@ def build_hazard_stats(pgetter, hstats, individual_curves, monitor):
     imtls, poes, weights = pgetter.imtls, pgetter.poes, pgetter.weights
     pmap_by_kind = {}
     hmaps = []
-    if hstats:
-        names, funcs = zip(*hstats)
-        if pgetter.poes and 'std' in names:
-            hmaps = [calc.make_hmap(p, imtls, poes) for p in pmaps]
+    names, funcs = zip(*hstats)
+    if pgetter.poes and 'std' in names:
+        hmaps = [calc.make_hmap(p, imtls, poes) for p in pmaps]
     for statname, stat in hstats:
         with monitor('compute ' + statname):
             pmap = compute_pmap_stats(pmaps, [stat], weights, imtls)

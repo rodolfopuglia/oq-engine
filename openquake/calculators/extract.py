@@ -52,6 +52,25 @@ def barray(iterlines):
     return arr
 
 
+def get_hazard(dstore, key, kind):
+    """
+    :param dstore: a DataStore
+    :param key: 'hcurves', 'hmaps' or 'uhs'
+    :param kind: 'rlz-XXX', 'mean', 'quantile-XX', 'std', ...
+    """
+    uhs = key == 'uhs'
+    if uhs:
+        key = 'hmaps'
+    arr = dstore[key + '/' + kind].value
+    if key == 'hcurves':
+        return arr
+    oq = dstore['oqparam']
+    arr = arr.view(oq.hmap_dt())[:, 0]
+    if uhs:
+        arr = calc.make_uhs(arr, oq)
+    return arr
+
+
 def extract_(dstore, dspath):
     """
     Extracts an HDF5 path object from the datastore, for instance
@@ -276,20 +295,8 @@ def extract_uhs(dstore, what):
     /extract/uhs/rlz-0, etc
     """
     oq = dstore['oqparam']
-    imts = oq.imt_periods()
     mesh = get_mesh(dstore['sitecol'])
-    rlzs_assoc = dstore['csm_info'].get_rlzs_assoc()
-    dic = {}
-    imts_dt = numpy.dtype([(str(imt), F32) for imt in imts])
-    uhs_dt = numpy.dtype([(str(poe), imts_dt) for poe in oq.poes])
-    for name, hcurves in getters.PmapGetter(dstore, rlzs_assoc).items(what):
-        hmap = calc.make_hmap_array(hcurves, oq.imtls, oq.poes, len(mesh))
-        uhs = numpy.zeros(len(hmap), uhs_dt)
-        for field in hmap.dtype.names:
-            imt, poe = field.split('-')
-            if imt in imts_dt.names:
-                uhs[poe][imt] = hmap[field]
-        dic[name] = uhs
+    dic = {what: get_hazard(dstore, 'uhs', what)}
     return hazard_items(dic, mesh, investigation_time=oq.investigation_time)
 
 
