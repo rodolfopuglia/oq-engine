@@ -224,7 +224,7 @@ class EngineServerTestCase(unittest.TestCase):
         self.assertEqual(resp['calculation_mode'], 'classical')
 
         # check the /extract endpoint
-        url = '/v1/calc/%s/extract/hazard/rlzs' % job_id
+        url = '/v1/calc/%s/extract/hmaps/mean' % job_id
         resp = self.c.get(url)
         self.assertEqual(resp.status_code, 200)
 
