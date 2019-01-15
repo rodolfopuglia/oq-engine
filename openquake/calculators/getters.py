@@ -17,7 +17,6 @@
 # along with OpenQuake.  If not, see <http://www.gnu.org/licenses/>.
 import collections
 import itertools
-import functools
 import operator
 import mock
 import numpy
@@ -500,23 +499,33 @@ class GmfGetter(object):
         return res
 
 
-def rup_weight(sitecol, assetcol, record):
-    bbox = (record['minlon'], record['minlat'],
-            record['maxlon'], record['maxlat'])
-    arr = assetcol.array
-    w = 0
-    for sid in sitecol.within_bbox(bbox):
-        w += len(arr[arr['site_id'] == sid])
-    assert w > 0
-    return w
+class RuptureWeight(object):
+    def __init__(self, sitecol, assetcol, integration_distance, grptrt):
+        self.sitecol = sitecol
+        self.assetcol = assetcol
+        self.integration_distance = integration_distance
+        self.grptrt = grptrt
+
+    def __call__(self, rec):
+        """
+        :param rec: a rupture record with fields mag, grp_id, ...
+        """
+        arr = self.assetcol.array
+        bbox = geo.utils.get_bounding_box(
+            (rec['minlon'], rec['minlat'], rec['maxlon'], rec['maxlat']),
+            self.integration_distance(self.grptrt[rec['grp_id']], rec['mag']))
+        w = 0
+        for sid in self.sitecol.within_bbox(bbox):
+            w += len(arr[arr['site_id'] == sid])
+        return w
 
 
 def get_rupture_getters(dstore, slc=slice(None), split=0, hdf5cache=None):
     """
     :returns: a list of RuptureGetters
     """
-    weight = functools.partial(
-        rup_weight, dstore['sitecol'], dstore['assetcol'])
+    maxdist = calc.filters.IntegrationDistance(
+        dstore['oqparam'].maximum_distance)
     csm_info = dstore['csm_info']
     grp_trt = csm_info.grp_by("trt")
     samples = csm_info.get_samples_by_grp()
@@ -525,8 +534,14 @@ def get_rupture_getters(dstore, slc=slice(None), split=0, hdf5cache=None):
     code2cls = get_code2cls(dstore.get_attrs('ruptures'))
     rgetters = []
     by_grp = operator.itemgetter(2)  # serial, srcidx, grp_id
+    if 'assetcol' in dstore:  # for risk
+        rupweight = RuptureWeight(dstore['sitecol'], dstore['assetcol'],
+                                  maxdist, grp_trt)
+    else:
+        def rupweight(rec):
+            return 1
     for block in general.split_in_blocks(
-            rup_array, split, weight, key=by_grp):
+            rup_array, split, rupweight, key=by_grp):
         rups = numpy.array(block)
         grp_id = rups[0]['grp_id']
         if not rlzs_by_gsim[grp_id]:

@@ -277,6 +277,10 @@ def get_bounding_box(obj, maxdist):
         return obj.get_bounding_box(maxdist)
     elif hasattr(obj, 'polygon'):
         bbox = obj.polygon.get_bbox()
+    elif isinstance(obj, tuple):  # assume bbox to enlarge
+        bbox = minlon, minlat, maxlon, maxlat = obj
+        if cross_idl(minlon, maxlon):
+            bbox = minlon % 360, minlat, maxlon % 360, maxlat
     else:  # assume locations
         lons = numpy.array([loc.longitude for loc in obj])
         lats = numpy.array([loc.latitude for loc in obj])
