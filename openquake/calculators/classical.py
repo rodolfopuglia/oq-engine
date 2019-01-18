@@ -337,7 +337,7 @@ class ClassicalBySourceCalculator(ClassicalCalculator):
                          trt, len(sources), trti, len(trt_sources))
             splitmap = parallel.Starmap(readinput.split_filter,
                                         monitor=self.monitor('split_filter'),
-                                        progress=logging.debug)
+                                        progress=logging.info)
             gsims = self.csm.info.gsim_lt.get_gsims(trt)
             blocks = list(self.block_splitter(sources))
             for block in blocks:  # block containing a heavy source
