@@ -331,17 +331,21 @@ class ClassicalBySourceCalculator(ClassicalCalculator):
             pointsource_distance=oq.pointsource_distance)
         maxweight = self.csm.get_maxweight(weight, ct, source.MINWEIGHT)
         smap = parallel.Starmap(classical, monitor=self.monitor('classical'))
-        for trt, sources in self.csm.sources_by_trt(True).items():
-            logging.info('Processing %s with %d sources', trt, len(sources))
+        trt_sources = self.csm.sources_by_trt(True).items()
+        for trti, (trt, sources) in enumerate(trt_sources, 1):
+            logging.info('Processing %s with %d sources [%d of %d]',
+                         trt, len(sources), trti, len(trt_sources))
             splitmap = parallel.Starmap(readinput.split_filter,
                                         monitor=self.monitor('split_filter'),
                                         progress=logging.debug)
             gsims = self.csm.info.gsim_lt.get_gsims(trt)
-            for block in self.block_splitter(sources):
-                if block.weight < maxweight:
-                    smap.submit(block, self.src_filter, gsims, param)
-                else:
+            blocks = list(self.block_splitter(sources))
+            for block in blocks:  # block containing a heavy source
+                if block.weight > maxweight:
                     splitmap.submit(block, self.src_filter, 0)
+            for block in blocks:  # light sources
+                if block.weight <= maxweight:
+                    smap.submit(block, self.src_filter, gsims, param)
                 num_sources += len(block)
                 sent_tasks += 1
             for splits, stime in splitmap:
