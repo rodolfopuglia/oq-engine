@@ -343,14 +343,15 @@ class HazardCalculator(BaseCalculator):
         :param key: None or 'src_group_id'
         :returns: an iterator over blocks of sources
         """
-        ct = self.oqparam.concurrent_tasks or 1
-        maxweight = self.csm.get_maxweight(weight, ct, source.MINWEIGHT)
-        if not hasattr(self, 'logged'):
+        try:
+            maxweight = self._maxweight
+        except AttributeError:
+            maxweight = self._maxweight = self.csm.get_maxweight(
+                weight, self.oqparam.concurrent_tasks or 1, source.MINWEIGHT)
             if maxweight == source.MINWEIGHT:
                 logging.info('Using minweight=%d', source.MINWEIGHT)
             else:
                 logging.info('Using maxweight=%d', maxweight)
-            self.logged = True
         return general.block_splitter(sources, maxweight, weight, key)
 
     @general.cached_property
