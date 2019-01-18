@@ -671,6 +671,7 @@ def get_source_models(oqparam, gsim_lt, source_model_lt, monitor,
                 fname = os.path.abspath(os.path.join(smlt_dir, name))
                 smap.submit([fname], converter)
         dic = {sm.fname: sm for sm in smap}
+        parallel.Starmap.shutdown()  # save memory
 
     # consider only the effective realizations
     nr = 0

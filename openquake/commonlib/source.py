@@ -26,7 +26,7 @@ import numpy
 from openquake.baselib import hdf5
 from openquake.baselib.python3compat import decode
 from openquake.baselib.general import (
-    groupby, group_array, gettemp, AccumDict, cached_property)
+    groupby, group_array, gettemp, AccumDict)
 from openquake.hazardlib import source, sourceconverter
 from openquake.hazardlib.gsim.gmpe_table import GMPETable
 from openquake.commonlib import logictree
@@ -552,7 +552,10 @@ class CompositeSourceModel(collections.Sequence):
         if n < tot:
             logging.info('Reduced %d sources to %d sources with unique IDs',
                          tot, n)
-        return dic
+        for k in dic:
+            dic[k].sort(key=weight)
+        items = sorted(dic.items(), key=lambda kv: len(kv[1]))
+        return dict(items)  # sorted by num_sources and weight
 
     def get_num_ruptures(self):
         """
