@@ -115,7 +115,8 @@ class ClassicalCalculator(base.HazardCalculator):
                 source_ids.append(get_src_ids(args[0]))
                 for src in args[0]:  # collect source data
                     data.append((i, src.nsites, src.num_ruptures, src.weight))
-            self.datastore['task_sources'] = encode(source_ids)
+            if source_ids:
+                self.datastore['task_sources'] = encode(source_ids)
             self.datastore.extend(
                 'source_data', numpy.array(data, source_data_dt))
         self.nsites = []
@@ -322,16 +323,18 @@ class ClassicalBySourceCalculator(ClassicalCalculator):
     def send_sources(self):
         oq = self.oqparam
         num_sources = 0
+        sent_tasks = 0
         ct = self.oqparam.concurrent_tasks or 1
         param = dict(
             truncation_level=oq.truncation_level, imtls=oq.imtls,
             filter_distance=oq.filter_distance, reqv=oq.get_reqv(),
             pointsource_distance=oq.pointsource_distance)
         maxweight = self.csm.get_maxweight(weight, ct, source.MINWEIGHT)
-        smap = parallel.Starmap(classical)
+        smap = parallel.Starmap(classical, monitor=self.monitor('classical'))
         for trt, sources in self.csm.sources_by_trt(True).items():
             logging.info('Processing %s with %d sources', trt, len(sources))
             splitmap = parallel.Starmap(readinput.split_filter,
+                                        monitor=self.monitor('split_filter'),
                                         progress=logging.debug)
             gsims = self.csm.info.gsim_lt.get_gsims(trt)
             for block in self.block_splitter(sources):
@@ -340,10 +343,13 @@ class ClassicalBySourceCalculator(ClassicalCalculator):
                 else:
                     splitmap.submit(block, self.src_filter, 0)
                 num_sources += len(block)
+                sent_tasks += 1
             for splits, stime in splitmap:
                 for block in self.block_splitter(splits):
                     smap.submit(block, self.src_filter, gsims, param)
-        logging.info('Sent %d sources', num_sources)
+                num_sources += len(block)
+                sent_tasks += 1
+        logging.info('Sent %d sources in %d tasks', num_sources, sent_tasks)
         return smap
 
     def execute(self):

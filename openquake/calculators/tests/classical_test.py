@@ -73,7 +73,7 @@ class ClassicalTestCase(CalculatorTestCase):
         # check minimum_magnitude discards the source
         with self.assertRaises(RuntimeError) as ctx:
             self.run_calc(case_1.__file__, 'job.ini', minimum_magnitude='4.5')
-        self.assertEqual(str(ctx.exception), 'All sources were filtered away!')
+        self.assertEqual(str(ctx.exception), 'All sources were filtered out!')
 
     @attr('qa', 'hazard', 'classical')
     def test_wrong_smlt(self):
