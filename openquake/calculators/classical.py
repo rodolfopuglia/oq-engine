@@ -24,7 +24,7 @@ from openquake.baselib.python3compat import encode
 from openquake.baselib.general import AccumDict
 from openquake.hazardlib.calc.hazard_curve import classical, ProbabilityMap
 from openquake.hazardlib.stats import compute_pmap_stats
-from openquake.commonlib import calc
+from openquake.commonlib import calc, source, readinput
 from openquake.calculators import getters
 from openquake.calculators import base
 
@@ -310,3 +310,56 @@ def build_hazard_stats(pgetter, hstats, individual_curves, monitor):
                     pmap_by_kind['hmaps', key] = calc.make_hmap(
                         pmap, imtls, poes)
     return pmap_by_kind
+
+
+@base.calculators.add('classical_by_source')
+class ClassicalBySourceCalculator(ClassicalCalculator):
+    """
+    Simplified classical PSHA calculator
+    """
+    core_task = classical
+
+    def send_sources(self):
+        oq = self.oqparam
+        num_sources = 0
+        ct = self.oqparam.concurrent_tasks or 1
+        param = dict(
+            truncation_level=oq.truncation_level, imtls=oq.imtls,
+            filter_distance=oq.filter_distance, reqv=oq.get_reqv(),
+            pointsource_distance=oq.pointsource_distance)
+        maxweight = self.csm.get_maxweight(weight, ct, source.MINWEIGHT)
+        smap = parallel.Starmap(classical)
+        for trt, sources in self.csm.sources_by_trt.items():
+            splitmap = parallel.Starmap(readinput.split_filter)
+            gsims = self.csm.info.gsim_lt.get_gsims(trt)
+            for block in self.block_splitter(sources):
+                if block.weight < maxweight:
+                    smap.submit(block, self.src_filter, gsims, param)
+                else:
+                    splitmap.submit(block, self.src_filter, 0)
+                num_sources += len(block)
+            for splits, stime in splitmap:
+                for block in self.block_splitter(splits):
+                    smap.submit(block, self.src_filter, gsims, param)
+        logging.info('Sent %d sources', num_sources)
+        return smap
+
+    def execute(self):
+        """
+        Run in parallel `core_task(sources, sitecol, monitor)`, by
+        parallelizing on the sources according to their weight and
+        tectonic region type.
+        """
+        if self.oqparam.hazard_calculation_id:
+            parent = datastore.read(self.oqparam.hazard_calculation_id)
+            self.csm_info = parent['csm_info']
+            parent.close()
+            self.calc_stats(parent)  # post-processing
+            return {}
+        self.nsites = []
+        acc = self.send_sources().reduce(self.agg_dicts, self.zerodict())
+        if not self.nsites:
+            raise RuntimeError('All sources were filtered out!')
+        logging.info('Effective sites per task: %d', numpy.mean(self.nsites))
+        self.store_csm_info(acc.eff_ruptures)
+        return acc
