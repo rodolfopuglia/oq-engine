@@ -554,7 +554,7 @@ class CompositeSourceModel(collections.Sequence):
                          tot, n)
         for k in dic:
             dic[k].sort(key=weight)
-        items = sorted(dic.items(), key=lambda kv: len(kv[1]))
+        items = sorted(dic.items(), key=lambda kv: len(kv[1]), reverse=True)
         return dict(items)  # sorted by num_sources and weight
 
     def get_num_ruptures(self):
