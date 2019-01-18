@@ -883,9 +883,10 @@ def get_composite_source_model(oqparam, monitor=None, in_memory=True,
         srcfilter = RtreeFilter(srcfilter.sitecol,
                                 oqparam.maximum_distance,
                                 srcfilter.hdf5path)
-    if (srcfilter and oqparam.prefilter_sources != 'no' and
-            oqparam.calculation_mode not in
-            'ucerf_hazard ucerf_risk classical_by_rupture'):
+    if oqparam.calculation_mode in (
+            'ucerf_hazard ucerf_risk classical_by_source'):
+        return csm
+    elif srcfilter and oqparam.prefilter_sources != 'no':
         split = not oqparam.is_event_based()
         csm = parallel_split_filter(csm, srcfilter, split,
                                     monitor('split_filter'))

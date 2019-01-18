@@ -451,7 +451,7 @@ class CompositeSourceModel(collections.Sequence):
         :returns: total weight of the source model
         """
         tot_weight = 0
-        for srcs in self.sources_by_trt.values():
+        for srcs in self.sources_by_trt(self.optimize_same_id).values():
             tot_weight += sum(map(weight, srcs))
         for grp in self.gen_mutex_groups():
             tot_weight += sum(map(weight, grp))
@@ -522,8 +522,7 @@ class CompositeSourceModel(collections.Sequence):
                         sources.append(src)
         return sources
 
-    @cached_property
-    def sources_by_trt(self):
+    def sources_by_trt(self, optimize_same_id):
         """
         Build a dictionary TRT string -> sources. Sources of kind "mutex"
         (if any) are silently discarded.
@@ -533,7 +532,7 @@ class CompositeSourceModel(collections.Sequence):
             for grp in sm.src_groups:
                 if grp.src_interdep != 'mutex':
                     acc[grp.trt].extend(grp)
-        if self.optimize_same_id is False:
+        if optimize_same_id is False:
             return acc
         # extract a single source from multiple sources with the same ID
         n = 0

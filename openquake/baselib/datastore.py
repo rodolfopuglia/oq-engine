@@ -410,7 +410,7 @@ class DataStore(collections.MutableMapping):
             del self[key]
         try:
             self.hdf5[key] = val
-        except RuntimeError as exc:
+        except Exception as exc:
             raise RuntimeError('Could not save %s: %s in %s' %
                                (key, exc, self.hdf5path))
 

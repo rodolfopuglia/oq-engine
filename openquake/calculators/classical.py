@@ -118,7 +118,6 @@ class ClassicalCalculator(base.HazardCalculator):
             self.datastore['task_sources'] = encode(source_ids)
             self.datastore.extend(
                 'source_data', numpy.array(data, source_data_dt))
-        self.csm.sources_by_trt.clear()  # save memory
         self.nsites = []
         acc = smap.reduce(self.agg_dicts, self.zerodict())
         if not self.nsites:
@@ -156,7 +155,8 @@ class ClassicalCalculator(base.HazardCalculator):
                 num_tasks += 1
                 num_sources += len(sg.sources)
         # NB: csm.get_sources_by_trt discards the mutex sources
-        for trt, sources in self.csm.sources_by_trt.items():
+        for trt, sources in self.csm.sources_by_trt(
+                oq.optimize_same_id_sources).items():
             gsims = self.csm.info.gsim_lt.get_gsims(trt)
             for block in self.block_splitter(sources):
                 yield block, self.src_filter, gsims, param
@@ -329,8 +329,10 @@ class ClassicalBySourceCalculator(ClassicalCalculator):
             pointsource_distance=oq.pointsource_distance)
         maxweight = self.csm.get_maxweight(weight, ct, source.MINWEIGHT)
         smap = parallel.Starmap(classical)
-        for trt, sources in self.csm.sources_by_trt.items():
-            splitmap = parallel.Starmap(readinput.split_filter)
+        for trt, sources in self.csm.sources_by_trt(True).items():
+            logging.info('Processing %s with %d sources', trt, len(sources))
+            splitmap = parallel.Starmap(readinput.split_filter,
+                                        progress=logging.debug)
             gsims = self.csm.info.gsim_lt.get_gsims(trt)
             for block in self.block_splitter(sources):
                 if block.weight < maxweight:
