@@ -33,7 +33,7 @@ from openquake.commonlib import logictree
 from openquake.commonlib.rlzs_assoc import get_rlzs_assoc
 
 
-RUPTURES_PER_BLOCK = 20000
+RUPTURES_PER_BLOCK = 10000
 MINWEIGHT = source.MINWEIGHT
 MAX_INT = 2 ** 31 - 1
 U16 = numpy.uint16

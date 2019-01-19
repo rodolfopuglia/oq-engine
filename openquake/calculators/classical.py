@@ -140,7 +140,7 @@ class ClassicalCalculator(base.HazardCalculator):
             else:
                 heavy.submit(*args)
         for args in heavy_args:
-            heavy_args.submit(*args)
+            heavy.submit(*args)
         acc = heavy.reduce(self.agg_dicts, acc)
         if not self.nsites:
             raise RuntimeError('All sources were filtered out!')
@@ -149,11 +149,10 @@ class ClassicalCalculator(base.HazardCalculator):
         return acc
 
     def gen_heavy_args(self):
-        srcfilter = RtreeFilter(self.src_filter.sitecol,
-                                self.oqparam.maximum_distance,
-                                self.src_filter.hdf5path)
+        srcfilter = RtreeFilter(self.sitecol,
+                                self.oqparam.maximum_distance)
         for gsims, param, block in self.heavy:
-            logging.info('Split/filter %s', block[0])
+            logging.debug('Split/filter %s', block[0])
             splits, stime = split_sources(block)
             isplits = srcfilter.filter(splits)
             for blk in self.block_splitter(isplits):
