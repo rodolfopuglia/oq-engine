@@ -105,19 +105,8 @@ class ClassicalCalculator(base.HazardCalculator):
             parent.close()
             self.calc_stats(parent)  # post-processing
             return {}
-        with self.monitor('managing sources', autoflush=True):
-            smap = parallel.Starmap(
-                self.core_task.__func__, monitor=self.monitor())
-            source_ids = []
-            data = []
-            for i, args in enumerate(self.gen_args(), 1):
-                smap.submit(*args)
-                source_ids.append(get_src_ids(args[0]))
-                for src in args[0]:  # collect source data
-                    data.append((i, src.nsites, src.num_ruptures, src.weight))
-            self.datastore['task_sources'] = encode(source_ids)
-            self.datastore.extend(
-                'source_data', numpy.array(data, source_data_dt))
+        smap = parallel.Starmap(
+            self.core_task.__func__, self.gen_args(), self.monitor())
         self.nsites = []
         acc = smap.reduce(self.agg_dicts, self.zerodict())
         if not self.nsites:
@@ -139,6 +128,8 @@ class ClassicalCalculator(base.HazardCalculator):
             pointsource_distance=oq.pointsource_distance)
         num_tasks = 0
         num_sources = 0
+        source_ids = []
+        data = []
 
         if self.csm.has_dupl_sources and not opt:
             logging.warn('Found %d duplicated sources',
@@ -156,12 +147,24 @@ class ClassicalCalculator(base.HazardCalculator):
             yield sg.sources, self.src_filter, gsims, par
             num_tasks += 1
             num_sources += len(sg.sources)
+            source_ids.append(get_src_ids(sg.sources))
+            for src in sg.sources:
+                data.append(  # collect source data
+                    (num_tasks, src.nsites, src.num_ruptures, src.weight))
+
         for trt, sources in sources_by_trt.items():
             gsims = self.csm.info.gsim_lt.get_gsims(trt)
             for block in self.block_splitter(sources):
                 yield block, self.src_filter, gsims, param
                 num_tasks += 1
                 num_sources += len(block)
+                source_ids.append(get_src_ids(sg.sources))
+                for src in block:
+                    data.append(  # collect source data
+                        (num_tasks, src.nsites, src.num_ruptures, src.weight))
+
+        self.datastore['task_sources'] = encode(source_ids)
+        self.datastore['source_data'] = numpy.array(data, source_data_dt)
         logging.info('Sent %d sources in %d tasks', num_sources, num_tasks)
 
     def save_hazard_stats(self, acc, pmap_by_kind):
