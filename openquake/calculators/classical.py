@@ -128,12 +128,35 @@ class ClassicalCalculator(base.HazardCalculator):
             self.datastore.extend(
                 'source_data', numpy.array(data, source_data_dt))
         self.nsites = []
-        acc = smap.reduce(self.agg_dicts, self.zerodict())
+        heavy = parallel.Starmap(
+            self.core_task.__func__, monitor=self.monitor('heavy'))
+        acc = self.zerodict()
+        heavy_args = self.gen_heavy_args()
+        for dic in smap:
+            acc = self.agg_dicts(acc, dic)
+            try:
+                args = next(heavy_args)
+            except StopIteration:
+                pass
+            else:
+                heavy.submit(*args)
+        acc = heavy.reduce(self.agg_dicts, acc)
         if not self.nsites:
             raise RuntimeError('All sources were filtered out!')
         logging.info('Effective sites per task: %d', numpy.mean(self.nsites))
         self.store_csm_info(acc.eff_ruptures)
         return acc
+
+    def gen_heavy_args(self):
+        srcfilter = RtreeFilter(self.src_filter.sitecol,
+                                self.oqparam.maximum_distance,
+                                self.src_filter.hdf5path)
+        for gsims, param, block in self.heavy:
+            logging.info('Split/filter %s', block[0])
+            splits, stime = split_sources(block)
+            isplits = srcfilter.filter(splits)
+            for blk in self.block_splitter(isplits):
+                yield blk, self.src_filter, gsims, param
 
     def gen_args(self):
         """
@@ -161,18 +184,12 @@ class ClassicalCalculator(base.HazardCalculator):
             gsims = self.csm.info.gsim_lt.get_gsims(sg.trt)
             yield sg.sources, self.src_filter, gsims, par
 
-        srcfilter = RtreeFilter(self.src_filter.sitecol,
-                                oq.maximum_distance,
-                                self.src_filter.hdf5path)
+        self.heavy = []
         for trt, sources in sources_by_trt.items():
             gsims = self.csm.info.gsim_lt.get_gsims(trt)
             for block in self.block_splitter(sources):
                 if has_many_ruptures(block):
-                    logging.info('Split/filter %s', block[0])
-                    splits, stime = split_sources(block)
-                    isplits = srcfilter.filter(splits)
-                    for blk in self.block_splitter(isplits):
-                        yield blk, self.src_filter, gsims, param
+                    self.heavy.append((gsims, param, block))
                 else:
                     yield block, self.src_filter, gsims, param
 
