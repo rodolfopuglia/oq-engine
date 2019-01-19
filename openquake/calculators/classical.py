@@ -22,7 +22,7 @@ import numpy
 from openquake.baselib import parallel, hdf5, datastore
 from openquake.baselib.python3compat import encode
 from openquake.baselib.general import AccumDict
-from openquake.hazardlib.calc.filters import split_sources
+from openquake.hazardlib.calc.filters import split_sources, RtreeFilter
 from openquake.hazardlib.calc.hazard_curve import classical, ProbabilityMap
 from openquake.hazardlib.stats import compute_pmap_stats
 from openquake.commonlib import calc
@@ -41,7 +41,7 @@ source_data_dt = numpy.dtype(
 RUPTURES_PER_BLOCK = 10000
 
 
-def many_ruptures(block):
+def has_many_ruptures(block):
     return sum(src.num_ruptures for src in block) > RUPTURES_PER_BLOCK
 
 
@@ -157,12 +157,17 @@ class ClassicalCalculator(base.HazardCalculator):
             par['temporal_occurrence_model'] = sg.temporal_occurrence_model
             gsims = self.csm.info.gsim_lt.get_gsims(sg.trt)
             yield sg.sources, self.src_filter, gsims, par
+
+        srcfilter = RtreeFilter(self.src_filter.sitecol,
+                                oq.maximum_distance,
+                                self.src_filter.hdf5path)
         for trt, sources in sources_by_trt.items():
             gsims = self.csm.info.gsim_lt.get_gsims(trt)
             for block in self.block_splitter(sources):
-                if many_ruptures(block):
+                if has_many_ruptures(block):
+                    logging.info('Split/filter %s', block[0])
                     splits, stime = split_sources(block)
-                    isplits = self.src_filter.filter(splits)
+                    isplits = srcfilter.filter(splits)
                     for blk in self.block_splitter(isplits):
                         yield blk, self.src_filter, gsims, param
                 else:
