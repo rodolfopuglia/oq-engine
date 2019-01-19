@@ -22,7 +22,7 @@ import numpy
 
 from openquake.baselib import parallel, hdf5, datastore
 from openquake.baselib.python3compat import encode
-from openquake.baselib.general import AccumDict, humansize
+from openquake.baselib.general import AccumDict, humansize, groupby
 from openquake.hazardlib.calc.filters import split_sources
 from openquake.hazardlib.calc.hazard_curve import classical, ProbabilityMap
 from openquake.hazardlib.stats import compute_pmap_stats
@@ -35,6 +35,7 @@ U32 = numpy.uint32
 F32 = numpy.float32
 F64 = numpy.float64
 weight = operator.attrgetter('weight')
+bytrt = operator.attrgetter('tectonic_region_type')
 grp_source_dt = numpy.dtype([('grp_id', U16), ('source_id', hdf5.vstr),
                              ('source_name', hdf5.vstr)])
 source_data_dt = numpy.dtype(
@@ -89,8 +90,7 @@ def gen_splits(sources_by_trt, srcfilter, monitor):
     small_splits = []
     for splits, stime in parallel.Starmap.apply(
             split_filter, (sources, srcfilter, seed, monitor),
-            key=operator.attrgetter('tectonic_region_type'),
-            maxweight=RUPTURES_PER_BLOCK,
+            key=bytrt, maxweight=RUPTURES_PER_BLOCK,
             weight=operator.attrgetter('num_ruptures')):
         if sum(s.num_ruptures for s in splits) < RUPTURES_PER_BLOCK:
             small_splits.extend(splits)
@@ -101,7 +101,7 @@ def gen_splits(sources_by_trt, srcfilter, monitor):
             if monitor.hdf5:
                 source_info[i, 'split_time'] += stime[i]
                 source_info[i, 'num_split'] += 1
-        yield small_splits
+        yield from groupby(small_splits, bytrt).items()
 
 
 @base.calculators.add('classical')
