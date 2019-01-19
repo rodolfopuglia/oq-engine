@@ -199,6 +199,7 @@ class ClassicalCalculator(base.HazardCalculator):
         for trt, splits in gen_splits(sources_by_trt, self.src_filter, mon):
             gsims = self.csm.info.gsim_lt.get_gsims(trt)
             for block in self.block_splitter(splits):
+                print('Sending %d split sources' % len(block))
                 yield block, self.src_filter, gsims, param
                 num_tasks += 1
                 num_sources += len(block)
