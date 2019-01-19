@@ -15,18 +15,17 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with OpenQuake. If not, see <http://www.gnu.org/licenses/>.
-import os
 import logging
 import operator
 import numpy
 
 from openquake.baselib import parallel, hdf5, datastore
 from openquake.baselib.python3compat import encode
-from openquake.baselib.general import AccumDict, humansize, groupby
+from openquake.baselib.general import AccumDict
 from openquake.hazardlib.calc.filters import split_sources
 from openquake.hazardlib.calc.hazard_curve import classical, ProbabilityMap
 from openquake.hazardlib.stats import compute_pmap_stats
-from openquake.commonlib import calc, readinput
+from openquake.commonlib import calc
 from openquake.calculators import getters
 from openquake.calculators import base
 
@@ -35,12 +34,15 @@ U32 = numpy.uint32
 F32 = numpy.float32
 F64 = numpy.float64
 weight = operator.attrgetter('weight')
-bytrt = operator.attrgetter('tectonic_region_type')
 grp_source_dt = numpy.dtype([('grp_id', U16), ('source_id', hdf5.vstr),
                              ('source_name', hdf5.vstr)])
 source_data_dt = numpy.dtype(
     [('taskno', U16), ('nsites', U32), ('nruptures', U32), ('weight', F32)])
-RUPTURES_PER_BLOCK = 10000  # used in split_filter
+RUPTURES_PER_BLOCK = 10000
+
+
+def many_ruptures(block):
+    return sum(src.num_ruptures for src in block) > RUPTURES_PER_BLOCK
 
 
 def get_src_ids(sources):
@@ -58,50 +60,6 @@ def get_src_ids(sources):
             src_id = long_src_id
         src_ids.append(src_id)
     return ' '.join(set(src_ids))
-
-
-def split_filter(srcs, srcfilter, seed, monitor):
-    """
-    Split the given source and filter the subsources by distance and by
-    magnitude. Perform sampling  if a nontrivial sample_factor is passed.
-    Yields a pair (split_sources, split_time) if split_sources is non-empty.
-    """
-    splits, stime = split_sources(srcs)
-    if splits and seed:
-        # debugging tip to reduce the size of a calculation
-        splits = readinput.random_filtered_sources(splits, srcfilter, seed)
-        # NB: for performance, sample before splitting
-    if splits and srcfilter:
-        splits = list(srcfilter.filter(splits))
-    if splits:
-        yield splits, stime
-
-
-def gen_splits(sources_by_trt, srcfilter, monitor):
-    """
-    Splitting/filtering a dictionary of sources by tectonic region type.
-    """
-    logging.info('Splitting/filtering sources with %s',
-                 srcfilter.__class__.__name__)
-    if monitor.hdf5:
-        source_info = monitor.hdf5['source_info']
-    seed = int(os.environ.get('OQ_SAMPLE_SOURCES', 0))
-    sources = sum(sources_by_trt.values(), [])
-    small_splits = []
-    for splits, stime in parallel.Starmap.apply(
-            split_filter, (sources, srcfilter, seed, monitor),
-            key=bytrt, maxweight=RUPTURES_PER_BLOCK,
-            weight=operator.attrgetter('num_ruptures')):
-        if sum(s.num_ruptures for s in splits) < RUPTURES_PER_BLOCK:
-            small_splits.extend(splits)
-        else:
-            yield splits[0].tectonic_region_type, splits
-        for split in splits:
-            i = split.id
-            if monitor.hdf5:
-                source_info[i, 'split_time'] += stime[i]
-                source_info[i, 'num_split'] += 1
-        yield from groupby(small_splits, bytrt).items()
 
 
 @base.calculators.add('classical')
@@ -135,12 +93,9 @@ class ClassicalCalculator(base.HazardCalculator):
         csm_info = self.csm.info
         zd = AccumDict()
         num_levels = len(self.oqparam.imtls.array)
-        nbytes = 0
         for grp in self.csm.src_groups:
             num_gsims = len(csm_info.gsim_lt.get_gsims(grp.trt))
             zd[grp.id] = ProbabilityMap(num_levels, num_gsims)
-            nbytes += 8 * num_levels * num_gsims * len(self.sitecol)
-        logging.info('Upper limit for PoEs: %s', humansize(nbytes))
         zd.eff_ruptures = AccumDict()  # grp_id -> eff_ruptures
         return zd
 
@@ -156,8 +111,19 @@ class ClassicalCalculator(base.HazardCalculator):
             parent.close()
             self.calc_stats(parent)  # post-processing
             return {}
-        smap = parallel.Starmap(
-            self.core_task.__func__, self.gen_args(), self.monitor())
+        with self.monitor('managing sources', autoflush=True):
+            smap = parallel.Starmap(
+                self.core_task.__func__, monitor=self.monitor())
+            source_ids = []
+            data = []
+            for i, args in enumerate(self.gen_args(), 1):
+                smap.submit(*args)
+                source_ids.append(get_src_ids(args[0]))
+                for src in args[0]:  # collect source data
+                    data.append((i, src.nsites, src.num_ruptures, src.weight))
+            self.datastore['task_sources'] = encode(source_ids)
+            self.datastore.extend(
+                'source_data', numpy.array(data, source_data_dt))
         self.nsites = []
         acc = smap.reduce(self.agg_dicts, self.zerodict())
         if not self.nsites:
@@ -177,11 +143,6 @@ class ClassicalCalculator(base.HazardCalculator):
             truncation_level=oq.truncation_level, imtls=oq.imtls,
             filter_distance=oq.filter_distance, reqv=oq.get_reqv(),
             pointsource_distance=oq.pointsource_distance)
-        num_tasks = 0
-        num_sources = 0
-        source_ids = []
-        data = []
-
         if self.csm.has_dupl_sources and not opt:
             logging.warn('Found %d duplicated sources',
                          self.csm.has_dupl_sources)
@@ -196,29 +157,16 @@ class ClassicalCalculator(base.HazardCalculator):
             par['temporal_occurrence_model'] = sg.temporal_occurrence_model
             gsims = self.csm.info.gsim_lt.get_gsims(sg.trt)
             yield sg.sources, self.src_filter, gsims, par
-            num_tasks += 1
-            num_sources += len(sg.sources)
-            source_ids.append(get_src_ids(sg.sources))
-            for src in sg.sources:
-                data.append(  # collect source data
-                    (num_tasks, src.nsites, src.num_ruptures, src.weight))
-
-        mon = self.monitor('split_filter')
-        for trt, splits in gen_splits(sources_by_trt, self.src_filter, mon):
+        for trt, sources in sources_by_trt.items():
             gsims = self.csm.info.gsim_lt.get_gsims(trt)
-            for block in self.block_splitter(splits):
-                print('Sending %d split sources' % len(block))
-                yield block, self.src_filter, gsims, param
-                num_tasks += 1
-                num_sources += len(block)
-                source_ids.append(get_src_ids(sg.sources))
-                for src in block:
-                    data.append(  # collect source data
-                        (num_tasks, src.nsites, src.num_ruptures, src.weight))
-
-        #self.datastore['task_sources'] = encode(source_ids)
-        #self.datastore['source_data'] = numpy.array(data, source_data_dt)
-        logging.info('Sent %d sources in %d tasks', num_sources, num_tasks)
+            for block in self.block_splitter(sources):
+                if many_ruptures(block):
+                    splits, stime = split_sources(block)
+                    isplits = self.src_filter.filter(splits)
+                    for blk in self.block_splitter(isplits):
+                        yield blk, self.src_filter, gsims, param
+                else:
+                    yield block, self.src_filter, gsims, param
 
     def save_hazard_stats(self, acc, pmap_by_kind):
         """
