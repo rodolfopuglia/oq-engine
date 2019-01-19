@@ -86,17 +86,22 @@ def gen_splits(sources_by_trt, srcfilter, monitor):
         source_info = monitor.hdf5['source_info']
     seed = int(os.environ.get('OQ_SAMPLE_SOURCES', 0))
     sources = sum(sources_by_trt.values(), [])
+    small_splits = []
     for splits, stime in parallel.Starmap.apply(
             split_filter, (sources, srcfilter, seed, monitor),
             key=operator.attrgetter('tectonic_region_type'),
             maxweight=RUPTURES_PER_BLOCK,
             weight=operator.attrgetter('num_ruptures')):
-        yield splits[0].tectonic_region_type, splits
+        if sum(s.num_ruptures for s in splits) < RUPTURES_PER_BLOCK:
+            small_splits.extend(splits)
+        else:
+            yield splits[0].tectonic_region_type, splits
         for split in splits:
             i = split.id
             if monitor.hdf5:
                 source_info[i, 'split_time'] += stime[i]
                 source_info[i, 'num_split'] += 1
+        yield small_splits
 
 
 @base.calculators.add('classical')
