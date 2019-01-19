@@ -21,7 +21,7 @@ import numpy
 
 from openquake.baselib import parallel, hdf5, datastore
 from openquake.baselib.python3compat import encode
-from openquake.baselib.general import AccumDict
+from openquake.baselib.general import AccumDict, humansize
 from openquake.hazardlib.calc.filters import split_sources, RtreeFilter
 from openquake.hazardlib.calc.hazard_curve import classical, ProbabilityMap
 from openquake.hazardlib.stats import compute_pmap_stats
@@ -93,9 +93,12 @@ class ClassicalCalculator(base.HazardCalculator):
         csm_info = self.csm.info
         zd = AccumDict()
         num_levels = len(self.oqparam.imtls.array)
+        nbytes = 0
         for grp in self.csm.src_groups:
             num_gsims = len(csm_info.gsim_lt.get_gsims(grp.trt))
             zd[grp.id] = ProbabilityMap(num_levels, num_gsims)
+            nbytes += 8 * num_levels * num_gsims * len(self.sitecol)
+        logging.info('Upper limit for PoEs: %s', humansize(nbytes))
         zd.eff_ruptures = AccumDict()  # grp_id -> eff_ruptures
         return zd
 
