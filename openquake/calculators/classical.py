@@ -140,6 +140,8 @@ class ClassicalCalculator(base.HazardCalculator):
                 pass
             else:
                 heavy.submit(*args)
+        for args in heavy_args:
+            heavy_args.submit(*args)
         acc = heavy.reduce(self.agg_dicts, acc)
         if not self.nsites:
             raise RuntimeError('All sources were filtered out!')
