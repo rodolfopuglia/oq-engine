@@ -344,7 +344,7 @@ class HazardCalculator(BaseCalculator):
         :returns: an iterator over blocks of sources
         """
         ct = self.oqparam.concurrent_tasks or 1
-        maxweight = self.csm.get_maxweight(weight, ct, source.MINWEIGHT)
+        maxweight = self.csm.get_maxweight(ct, source.MINWEIGHT)
         if not hasattr(self, 'logged'):
             if maxweight == source.MINWEIGHT:
                 logging.info('Using minweight=%d', source.MINWEIGHT)

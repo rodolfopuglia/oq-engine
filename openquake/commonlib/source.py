@@ -26,7 +26,7 @@ import numpy
 from openquake.baselib import hdf5
 from openquake.baselib.python3compat import decode
 from openquake.baselib.general import (
-    groupby, group_array, gettemp, AccumDict)
+    groupby, group_array, gettemp, AccumDict, cached_property)
 from openquake.hazardlib import source, sourceconverter
 from openquake.hazardlib.gsim.gmpe_table import GMPETable
 from openquake.commonlib import logictree
@@ -442,7 +442,6 @@ class CompositeSourceModel(collections.Sequence):
         new = self.__class__(self.gsim_lt, self.source_model_lt, source_models,
                              self.optimize_same_id)
         new.info.update_eff_ruptures(new.get_num_ruptures())
-        new.info.tot_weight = new.get_weight()
         return new
 
     def split2(self):
@@ -456,13 +455,10 @@ class CompositeSourceModel(collections.Sequence):
             sources.sort(key=lambda src: src.num_ruptures)
         return csm_by_grp, src_by_trt
 
-    def get_weight(self, weight=operator.attrgetter('weight')):
-        """
-        :param weight: source weight function
-        :returns: total weight of the source model
-        """
-        return sum(weight(src) for src in self.get_sources()
-                   if src.num_ruptures < RUPTURES_PER_BLOCK)
+    @cached_property
+    def tot_weight(self):
+        return sum(src.weight for srcs in self._sources_by_trt().values()
+                   for src in srcs if src.num_ruptures < RUPTURES_PER_BLOCK)
 
     @property
     def src_groups(self):
@@ -567,11 +563,11 @@ class CompositeSourceModel(collections.Sequence):
             src.serial = serial
             serial += nr
 
-    def get_maxweight(self, weight, concurrent_tasks, minweight=MINWEIGHT):
+    def get_maxweight(self, concurrent_tasks, minweight=MINWEIGHT):
         """
         Return an appropriate maxweight for use in the block_splitter
         """
-        totweight = self.get_weight(weight)
+        totweight = self.tot_weight
         ct = concurrent_tasks or 1
         mw = math.ceil(totweight / ct)
         return max(mw, minweight)
