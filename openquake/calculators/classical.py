@@ -38,7 +38,7 @@ grp_source_dt = numpy.dtype([('grp_id', U16), ('source_id', hdf5.vstr),
                              ('source_name', hdf5.vstr)])
 source_data_dt = numpy.dtype(
     [('taskno', U16), ('nsites', U32), ('nruptures', U32), ('weight', F32)])
-RUPTURES_PER_BLOCK = 10000
+RUPTURES_PER_BLOCK = 20000
 
 
 def has_many_ruptures(block):

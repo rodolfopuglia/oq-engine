@@ -450,7 +450,10 @@ class CompositeSourceModel(collections.Sequence):
         """
         csm_by_grp = self.new({sg.id: sg for sg in self.src_groups
                                if sg.atomic})
-        return csm_by_grp, self._sources_by_trt()
+        src_by_trt = self._sources_by_trt()
+        for trt, sources in src_by_trt.items():
+            sources.sort(key=lambda src: src.num_ruptures)
+        return csm_by_grp, src_by_trt
 
     def get_weight(self, weight=operator.attrgetter('weight')):
         """
