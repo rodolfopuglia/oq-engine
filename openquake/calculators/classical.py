@@ -80,18 +80,17 @@ def gen_splits(sources_by_trt, srcfilter, monitor):
     """
     Splitting/filtering a dictionary of sources by tectonic region type.
     """
-    seed = int(os.environ.get('OQ_SAMPLE_SOURCES', 0))
     logging.info('Splitting/filtering sources with %s',
                  srcfilter.__class__.__name__)
-    sources = sum(sources_by_trt.values(), [])
-    smap = parallel.Starmap.apply(
-        split_filter, (sources, srcfilter, seed, monitor),
-        key=operator.attrgetter('tectonic_region_type'),
-        maxweight=RUPTURES_PER_BLOCK,
-        weight=operator.attrgetter('num_ruptures'))
     if monitor.hdf5:
         source_info = monitor.hdf5['source_info']
-    for splits, stime in smap:
+    seed = int(os.environ.get('OQ_SAMPLE_SOURCES', 0))
+    sources = sum(sources_by_trt.values(), [])
+    for splits, stime in parallel.Starmap.apply(
+            split_filter, (sources, srcfilter, seed, monitor),
+            key=operator.attrgetter('tectonic_region_type'),
+            maxweight=RUPTURES_PER_BLOCK,
+            weight=operator.attrgetter('num_ruptures')):
         yield splits[0].tectonic_region_type, splits
         for split in splits:
             i = split.id
