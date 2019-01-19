@@ -15,7 +15,6 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with OpenQuake. If not, see <http://www.gnu.org/licenses/>.
-import re
 import operator
 import collections
 import pickle
@@ -127,6 +126,7 @@ class SourceGroup(collections.Sequence):
                 for rup, _ in src.data:
                     assert rup.weight is not None
 
+    @property
     def atomic(self):
         """
         :returns: True if the group cannot be split

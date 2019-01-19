@@ -15,6 +15,7 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with OpenQuake. If not, see <http://www.gnu.org/licenses/>.
+import os
 import logging
 import operator
 import numpy
@@ -22,9 +23,10 @@ import numpy
 from openquake.baselib import parallel, hdf5, datastore
 from openquake.baselib.python3compat import encode
 from openquake.baselib.general import AccumDict
+from openquake.hazardlib.calc.filters import split_sources
 from openquake.hazardlib.calc.hazard_curve import classical, ProbabilityMap
 from openquake.hazardlib.stats import compute_pmap_stats
-from openquake.commonlib import calc
+from openquake.commonlib import calc, readinput
 from openquake.calculators import getters
 from openquake.calculators import base
 
@@ -37,6 +39,7 @@ grp_source_dt = numpy.dtype([('grp_id', U16), ('source_id', hdf5.vstr),
                              ('source_name', hdf5.vstr)])
 source_data_dt = numpy.dtype(
     [('taskno', U16), ('nsites', U32), ('nruptures', U32), ('weight', F32)])
+RUPTURES_PER_BLOCK = 10000  # used in split_filter
 
 
 def get_src_ids(sources):
@@ -54,6 +57,48 @@ def get_src_ids(sources):
             src_id = long_src_id
         src_ids.append(src_id)
     return ' '.join(set(src_ids))
+
+
+def split_filter(srcs, srcfilter, seed, monitor):
+    """
+    Split the given source and filter the subsources by distance and by
+    magnitude. Perform sampling  if a nontrivial sample_factor is passed.
+    Yields a pair (split_sources, split_time) if split_sources is non-empty.
+    """
+    splits, stime = split_sources(srcs)
+    if splits and seed:
+        # debugging tip to reduce the size of a calculation
+        splits = readinput.random_filtered_sources(splits, srcfilter, seed)
+        # NB: for performance, sample before splitting
+    if splits and srcfilter:
+        splits = list(srcfilter.filter(splits))
+    if splits:
+        yield splits, stime
+
+
+def gen_splits(sources_by_trt, srcfilter, monitor):
+    """
+    Splitting/filtering a dictionary of sources by tectonic region type.
+    """
+    seed = int(os.environ.get('OQ_SAMPLE_SOURCES', 0))
+    logging.info('Splitting/filtering sources with %s',
+                 srcfilter.__class__.__name__)
+    dist = 'no' if os.environ.get('OQ_DISTRIBUTE') == 'no' else 'processpool'
+    sources = sum(sources_by_trt.values(), [])
+    smap = parallel.Starmap.apply(
+        split_filter, (sources, srcfilter, seed, monitor),
+        key=operator.attrgetter('tectonic_region_type'),
+        maxweight=RUPTURES_PER_BLOCK, distribute=dist,
+        progress=logging.info, weight=operator.attrgetter('num_ruptures'))
+    if monitor.hdf5:
+        source_info = monitor.hdf5['source_info']
+    for splits, stime in smap:
+        yield splits[0].tectonic_region_type, splits
+        for split in splits:
+            i = split.id
+            if monitor.hdf5:
+                source_info[i, 'split_time'] += stime[i]
+                source_info[i, 'num_split'] += 1
 
 
 @base.calculators.add('classical')
@@ -152,9 +197,10 @@ class ClassicalCalculator(base.HazardCalculator):
                 data.append(  # collect source data
                     (num_tasks, src.nsites, src.num_ruptures, src.weight))
 
-        for trt, sources in sources_by_trt.items():
+        mon = self.monitor('split_filter')
+        for trt, splits in gen_splits(sources_by_trt, self.src_filter, mon):
             gsims = self.csm.info.gsim_lt.get_gsims(trt)
-            for block in self.block_splitter(sources):
+            for block in self.block_splitter(splits):
                 yield block, self.src_filter, gsims, param
                 num_tasks += 1
                 num_sources += len(block)
