@@ -83,13 +83,12 @@ def gen_splits(sources_by_trt, srcfilter, monitor):
     seed = int(os.environ.get('OQ_SAMPLE_SOURCES', 0))
     logging.info('Splitting/filtering sources with %s',
                  srcfilter.__class__.__name__)
-    dist = 'no' if os.environ.get('OQ_DISTRIBUTE') == 'no' else 'processpool'
     sources = sum(sources_by_trt.values(), [])
     smap = parallel.Starmap.apply(
         split_filter, (sources, srcfilter, seed, monitor),
         key=operator.attrgetter('tectonic_region_type'),
-        maxweight=RUPTURES_PER_BLOCK, distribute=dist,
-        progress=logging.info, weight=operator.attrgetter('num_ruptures'))
+        maxweight=RUPTURES_PER_BLOCK,
+        weight=operator.attrgetter('num_ruptures'))
     if monitor.hdf5:
         source_info = monitor.hdf5['source_info']
     for splits, stime in smap:
