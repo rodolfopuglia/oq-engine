@@ -33,6 +33,7 @@ from openquake.commonlib import logictree
 from openquake.commonlib.rlzs_assoc import get_rlzs_assoc
 
 
+RUPTURES_PER_BLOCK = 20000
 MINWEIGHT = source.MINWEIGHT
 MAX_INT = 2 ** 31 - 1
 U16 = numpy.uint16
@@ -460,7 +461,8 @@ class CompositeSourceModel(collections.Sequence):
         :param weight: source weight function
         :returns: total weight of the source model
         """
-        return sum(weight(src) for src in self.get_sources())
+        return sum(weight(src) for src in self.get_sources()
+                   if src.num_ruptures < RUPTURES_PER_BLOCK)
 
     @property
     def src_groups(self):

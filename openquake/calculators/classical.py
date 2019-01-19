@@ -25,7 +25,7 @@ from openquake.baselib.general import AccumDict, humansize
 from openquake.hazardlib.calc.filters import split_sources, RtreeFilter
 from openquake.hazardlib.calc.hazard_curve import classical, ProbabilityMap
 from openquake.hazardlib.stats import compute_pmap_stats
-from openquake.commonlib import calc
+from openquake.commonlib import calc, source
 from openquake.calculators import getters
 from openquake.calculators import base
 
@@ -38,11 +38,10 @@ grp_source_dt = numpy.dtype([('grp_id', U16), ('source_id', hdf5.vstr),
                              ('source_name', hdf5.vstr)])
 source_data_dt = numpy.dtype(
     [('taskno', U16), ('nsites', U32), ('nruptures', U32), ('weight', F32)])
-RUPTURES_PER_BLOCK = 20000
 
 
 def has_many_ruptures(block):
-    return sum(src.num_ruptures for src in block) > RUPTURES_PER_BLOCK
+    return sum(src.num_ruptures for src in block) > source.RUPTURES_PER_BLOCK
 
 
 def get_src_ids(sources):
