@@ -8,7 +8,7 @@ The official supported distributions to develop the OpenQuake Engine and its lib
 
 - Ubuntu 18.04 LTS (Bionic)
 - RedHat Enterprise Linux 7 / CentOS 7 / Scientific Linux 7
-- Fedora 28/29
+- Fedora 28/29/30
 
 This guide may work also on other Linux releases/distributions.
 
@@ -158,6 +158,12 @@ alias oqenv="source $HOME/openquake/oqenv/bin/activate"
 ```
 
 Put it again at the bottom of `~/.bashrc` or `~/.profile`; close and re-open the terminal. You can now load your environment just typing `oqenv`.
+
+It is also possible to run the `oq` command without the corresponding virtual environment loaded. Just run `$HOME/openquake/oqenv/bin/oq`; for convenience you can also add it as an `alias` in your `~/.bashrc` (Linux) or `~/.profile` (macOS):
+
+```bash
+alias oq="$HOME/openquake/oqenv/bin/oq"
+```
 
 ### Multiple installations
 
