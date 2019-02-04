@@ -57,7 +57,7 @@ def scenario_risk(riskinputs, riskmodel, param, monitor):
     L = len(riskmodel.loss_types)
     I = param['insured_losses'] + 1
     R = riskinputs[0].hazard_getter.num_rlzs
-    result = dict(agg=numpy.zeros((E, R, L * I), F32), avg=[],
+    result = dict(agg=numpy.zeros((E, L * I, R), F32), avg=[],
                   all_losses=AccumDict(accum={}))
     for ri in riskinputs:
         for outputs in riskmodel.gen_outputs(ri, monitor):
@@ -73,7 +73,7 @@ def scenario_risk(riskinputs, riskmodel, param, monitor):
                     result['avg'].append((l, r, asset.ordinal, stats[a]))
                 agglosses = losses.sum(axis=0)  # shape E, I
                 for i in range(I):
-                    result['agg'][:, r, l + L * i] += agglosses[:, i]
+                    result['agg'][:, l + L * i, r] += agglosses[:, i]
                 if param['asset_loss_table']:
                     aids = [asset.ordinal for asset in outputs.assets]
                     result['all_losses'][l, r] += AccumDict(zip(aids, losses))
@@ -118,17 +118,16 @@ class ScenarioRiskCalculator(base.RiskCalculator):
         """
         loss_dt = self.oqparam.loss_dt()
         LI = len(loss_dt.names)
-        dtlist = [('eid', U64), ('rlzi', U16), ('loss', (F32, LI))]
         I = self.oqparam.insured_losses + 1
         with self.monitor('saving outputs', autoflush=True):
             A = len(self.assetcol)
 
             # agg losses
             res = result['agg']
-            E, R, LI = res.shape
+            E, LI, R = res.shape
             L = LI // I
-            mean, std = scientific.mean_std(res)  # shape (R, LI)
-            agglosses = numpy.zeros((R, LI), stat_dt)
+            mean, std = scientific.mean_std(res)  # shape (LI, R)
+            agglosses = numpy.zeros((LI, R), stat_dt)
             agglosses['mean'] = F32(mean)
             agglosses['stddev'] = F32(std)
 
@@ -138,15 +137,16 @@ class ScenarioRiskCalculator(base.RiskCalculator):
                 for i in range(I):
                     losses_by_asset[aid, r, l + L * i] = stat[i]
             self.datastore['losses_by_asset'] = losses_by_asset
-            self.datastore['agglosses-rlzs'] = agglosses
+            self.datastore['agglosses-rlzs'] = agglosses.T  # shape (R, LI)
 
             # losses by event
-            lbe = numpy.fromiter(
-                ((eid, rlzi, res[eid, rlzi])
-                 for rlzi in range(R) for eid in range(E)), dtlist)
-            self.datastore['losses_by_event'] = lbe
-            loss_types = ' '.join(self.oqparam.loss_dt().names)
-            self.datastore.set_attrs('losses_by_event', loss_types=loss_types)
+            self.datastore['losses_by_event'] = res
+            self.datastore.set_attrs(
+                'losses_by_event',
+                tagnames=b'eid loss_type rlzi'.split(),
+                eid=numpy.arange(E),
+                loss_type=[lt.encode('utf8') for lt in loss_dt.names],
+                rlzi=numpy.arange(R))
 
             # all losses
             if self.oqparam.asset_loss_table:

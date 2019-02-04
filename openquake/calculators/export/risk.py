@@ -21,6 +21,7 @@ import logging
 import numpy
 
 from openquake.baselib.python3compat import encode
+from openquake.baselib.hdf5 import ArrayWrapper
 from openquake.baselib.general import group_array,  deprecated as depr
 from openquake.hazardlib import nrml
 from openquake.hazardlib.stats import compute_stats2
@@ -181,20 +182,17 @@ def export_losses_by_asset(ekey, dstore):
     return writer.getsaved()
 
 
-# this is used by scenario_risk
+# this is used by scenario_risk and ebrisk
 @export.add(('losses_by_event', 'csv'))
 def export_losses_by_event(ekey, dstore):
     """
     :param ekey: export key, i.e. a pair (datastore key, fmt)
     :param dstore: datastore object
     """
-    if dstore['oqparam'].calculation_mode == 'ebrisk':
-        logging.warn('You cannot export losses_by_event from ebrisk yet')
-        return []
-    dtlist = [('eid', U64), ('rlzi', U16)] + dstore['oqparam'].loss_dt_list()
     writer = writers.CsvWriter(fmt=writers.FIVEDIGITS)
     dest = dstore.build_fname('losses_by_event', '', 'csv')
-    writer.save(dstore['losses_by_event'].value.view(dtlist), dest)
+    arr = ArrayWrapper.from_dset(dstore['losses_by_event'])
+    writer.save(arr.to_table(), dest)
     return writer.getsaved()
 
 

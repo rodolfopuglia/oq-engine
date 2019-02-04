@@ -462,6 +462,13 @@ class ArrayWrapper(object):
     """
     A pickleable and serializable wrapper over an array, HDF5 dataset or group
     """
+    @classmethod
+    def from_dset(cls, dset):
+        """
+        :param dset: an HDF5 dataset
+        """
+        return cls(dset.value, dset.attrs)
+
     def __init__(self, array, attrs):
         vars(self).update(attrs)
         self.array = array
