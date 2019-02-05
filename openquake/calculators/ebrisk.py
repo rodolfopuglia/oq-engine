@@ -23,6 +23,7 @@ import numpy
 from openquake.baselib import hdf5, datastore, parallel, performance, general
 from openquake.baselib.general import humansize
 from openquake.baselib.python3compat import zip, encode
+from openquake.hazardlib.calc.filters import SourceFilter
 from openquake.calculators import base, event_based, getters
 from openquake.calculators.export.loss_curves import get_loss_builder
 
@@ -195,7 +196,13 @@ class EbriskCalculator(event_based.EventBasedCalculator):
                 dstore.hdf5path, list(range(start, stop)), grp_id,
                 trt_by_grp[grp_id], samples[grp_id], rlzs_by_gsim)
             if rgetter:
-                smap.submit(rgetter, self.src_filter, self.param)
+                if len(self.sitecol) <= oq.sites_per_tile:
+                    smap.submit(rgetter, self.src_filter, self.param)
+                else:
+                    num_tiles = len(self.sitecol) / oq.sites_per_tile
+                    for sitecol in self.sitecol.split_in_tiles(num_tiles):
+                        srcfilter = SourceFilter(sitecol, oq.maximum_distance)
+                        smap.submit(rgetter, srcfilter, self.param)
             nr += stop - start
         logging.info('Read %d ruptures', nr)
         return smap.reduce(self.agg_dicts, numpy.zeros(self.N))

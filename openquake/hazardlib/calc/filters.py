@@ -252,9 +252,9 @@ class SourceFilter(object):
     based on numpy.
     """
     def __init__(self, sitecol, integration_distance, hdf5path=None):
-        if sitecol is not None and len(sitecol) < len(sitecol.complete):
-            raise ValueError('%s is not complete!' % sitecol)
-        elif sitecol is None:
+        #if sitecol is not None and len(sitecol) < len(sitecol.complete):
+        #    raise ValueError('%s is not complete!' % sitecol)
+        if sitecol is None:
             integration_distance = {}
         self.hdf5path = hdf5path
         self.integration_distance = (

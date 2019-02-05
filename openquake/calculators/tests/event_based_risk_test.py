@@ -295,7 +295,7 @@ class EventBasedRiskTestCase(CalculatorTestCase):
 
     @attr('qa', 'risk', 'ebrisk')
     def test_case_miriam(self):
-        # this is a case with a grid and asset-hazard association
+        # this is a case with a grid and asset-hazard association and 548 sites
         event_based.RUPTURES_PER_BLOCK = 20
         self.run_calc(case_miriam.__file__, 'job.ini')
 
@@ -305,6 +305,7 @@ class EventBasedRiskTestCase(CalculatorTestCase):
 
         self.run_calc(case_miriam.__file__, 'job.ini',
                       calculation_mode='ebrisk',
+                      sites_per_tile='200',  # producing 3 tiles
                       hazard_calculation_id=str(self.calc.datastore.calc_id))
 
         # [fname] = export(('agg_loss_table', 'csv'), self.calc.datastore)
