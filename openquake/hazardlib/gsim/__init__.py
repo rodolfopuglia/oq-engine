@@ -21,8 +21,9 @@ Package :mod:`openquake.hazardlib.gsim` contains base and specific
 implementations of ground shaking intensity models. See
 :mod:`openquake.hazardlib.gsim.base`.
 """
+import json
 from openquake.baselib.general import import_all
-from openquake.hazardlib.gsim.base import registry
+from openquake.hazardlib.gsim.base import registry, GroundShakingIntensityModel
 
 import_all('openquake.hazardlib.gsim')
 
@@ -33,3 +34,24 @@ def get_available_gsims():
     by class name.
     '''
     return dict(sorted(registry.items()))
+
+
+def to_json(gsim):
+    """
+    :returns: the JSON representation of a gsim instance
+    """
+    dic = {'gsim_name': gsim.__class__.__name__}
+    for k, v in gsim.kwargs.items():
+        if isinstance(v, GroundShakingIntensityModel):
+            dic[k] = to_json(v)
+        else:
+            dic[k] = v
+    return json.dumps(dic)
+
+
+def from_json(text):
+    """
+    :returns: a gsim instance
+    """
+    dic = json.loads(text)
+    return registry[dic.pop('gsim_name')](**dic)

@@ -38,6 +38,7 @@ from openquake.baselib import hdf5, node
 from openquake.baselib.general import groupby, duplicated
 from openquake.baselib.python3compat import raise_
 import openquake.hazardlib.source as ohs
+from openquake.hazardlib.gsim import to_json, from_json
 from openquake.hazardlib.gsim.base import CoeffsTable
 from openquake.hazardlib.gsim.gmpe_table import GMPETable
 from openquake.hazardlib.imt import from_string
@@ -1259,8 +1260,7 @@ class SourceModelLogicTree(object):
 
 
 # used in GsimLogicTree
-BranchTuple = namedtuple(
-    'BranchTuple', 'trt id uncertainty gsim weight effective')
+BranchTuple = namedtuple('BranchTuple', 'trt id gsim weight effective')
 
 
 class InvalidLogicTree(Exception):
@@ -1424,9 +1424,9 @@ class GsimLogicTree(object):
         for branch in self.branches:
             weights.update(branch.weight.dic)
         dt = [('trt', hdf5.vstr), ('id', hdf5.vstr),
-              ('uncertainty', hdf5.vstr)] + [
+              ('gsim', hdf5.vstr)] + [
                   (weight, float) for weight in sorted(weights)]
-        branches = [(b.trt, b.id, b.uncertainty.to_str()) +
+        branches = [(b.trt, b.id, to_json(b.gsim)) +
                     tuple(b.weight[weight] for weight in sorted(weights))
                     for b in self.branches if b.effective]
         dic = {'branches': numpy.array(branches, dt)}
@@ -1434,7 +1434,16 @@ class GsimLogicTree(object):
         return dic, {}
 
     def __fromh5__(self, dic, attrs):
-        pass
+        self.branches = []
+        trts = {}
+        for branch in dic.pop('branches'):
+            gsim = from_json(branch['gsim'])
+            gsim.init(dic[gsim.gmpe_table])
+            weight = ImtWeight(branch['weight'])
+            bt = BranchTuple(branch['trt'], branch['id'], gsim, weight, True)
+            trts[bt.trt] = 1
+            self.branches.append(bt)
+        self.all_trts = list(trts)
 
     def __str__(self):
         """
@@ -1520,7 +1529,7 @@ class GsimLogicTree(object):
                     self.values[trt].append(gsim)
                     bt = BranchTuple(
                         branchset['applyToTectonicRegionType'],
-                        branch_id, uncertainty, gsim, weight, effective)
+                        branch_id, gsim, weight, effective)
                     branches.append(bt)
                 tot = sum(weights)
                 assert tot.is_one(), tot
