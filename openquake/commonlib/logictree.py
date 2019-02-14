@@ -1438,8 +1438,13 @@ class GsimLogicTree(object):
         trts = {}
         for branch in dic.pop('branches'):
             gsim = from_json(branch['gsim'])
-            gsim.init(dic[gsim.gmpe_table])
-            weight = ImtWeight(branch['weight'])
+            if 'gmpe_table' in dic:
+                gsim.init(dic[gsim.gmpe_table])
+            else:
+                gsim.init()
+            weight = object.__new__(ImtWeight)
+            # branch has dtype ('trt', 'id', 'gsim', 'weight', ...)
+            weight.dic = {w: branch[w] for w in branch.dtype.names[3:]}
             bt = BranchTuple(branch['trt'], branch['id'], gsim, weight, True)
             trts[bt.trt] = 1
             self.branches.append(bt)

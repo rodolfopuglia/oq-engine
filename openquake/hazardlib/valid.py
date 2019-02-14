@@ -73,6 +73,9 @@ class FromFile(object):
         return 'FromFile'
 
 
+gsim.registry['FromFile'] = FromFile
+
+
 # more tests are in tests/valid_test.py
 def gsim(value, **kwargs):
     """
