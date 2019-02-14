@@ -97,6 +97,7 @@ def gsim(value, **kwargs):
     except TypeError:
         raise ValueError('Could not instantiate %s%s' % (value, kwargs))
     gs.minimum_distance = minimum_distance
+    gs.init()
     return gs
 
 
