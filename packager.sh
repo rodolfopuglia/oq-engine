@@ -187,8 +187,6 @@ usage () {
     echo "    $0 pkgtest <branch-name>"
     echo "                                                 install oq-engine package and related dependencies into"
     echo "                                                 an ubuntu lxc environment and run package tests and demos"
-
-    echo "    $0 devtest <branch-name>"
     echo "                                                 put oq-engine and oq-* dependencies sources in a lxc,"
     echo "                                                 setup environment and run development tests."
     echo
@@ -345,91 +343,6 @@ _pkgbuild_innervm_run () {
     if echo "$DPBP_FLAG" | grep -q -v -- '-S'; then
         scp "$lxc_ip:"*.deb ../
     fi
-
-    return
-}
-
-#
-#  _devtest_innervm_run <lxc_ip> <branch> - part of source test performed on lxc
-#                     the following activities are performed:
-#                     - extracts dependencies from oq-engine debian/control
-#                       files and install them
-#                     - installs oq-engine sources on lxc
-#                     - set up db
-#                     - runs tests
-#                     - runs coverage
-#                     - collects all tests output files from lxc
-#
-#      <lxc_ip>   the IP address of lxc instance
-#      <branch>   name of the tested branch
-#
-_devtest_innervm_run () {
-    local pkgs_list lxc_ip="$1" branch="$2"
-
-    trap 'local LASTERR="$?" ; trap ERR ; (exit $LASTERR) ; return' ERR
-
-    ssh "$lxc_ip" "rm -f ssh.log"
-
-    ssh "$lxc_ip" "sudo apt-get update"
-    ssh "$lxc_ip" "sudo apt-get -y upgrade"
-    gpg -a --export | ssh "$lxc_ip" "sudo apt-key add -"
-
-    add_custom_pkg_repo
-
-    ssh "$lxc_ip" "sudo apt-get upgrade -y"
-
-    _depends_resolver deprec ""
-
-    # extract dependencies for this package
-    pkgs_list="$(deps_list "all" debian)"
-    ssh "$lxc_ip" sudo apt-get install -y ${pkgs_list}
-
-    # install sources of this package
-    git archive --prefix ${GEM_GIT_PACKAGE}/ HEAD | ssh "$lxc_ip" "tar xv"
-
-    # configure the machine to run tests
-    if [ -z "$GEM_DEVTEST_SKIP_TESTS" ]; then
-        ssh "$lxc_ip" "set -e
-                 export PYTHONPATH=\"\$PWD/oq-engine\"
-                 echo 'Starting DbServer. Log is saved to /tmp/dbserver.log'
-                 cd oq-engine; nohup /opt/openquake/bin/python3 bin/oq dbserver start &>/tmp/dbserver.log </dev/null &"
-
-        ssh "$lxc_ip" "export GEM_SET_DEBUG=$GEM_SET_DEBUG
-                 set -e
-                 if [ -n \"\$GEM_SET_DEBUG\" -a \"\$GEM_SET_DEBUG\" != \"false\" ]; then
-                     export PS4='+\${BASH_SOURCE}:\${LINENO}:\${FUNCNAME[0]}: '
-                     set -x
-                 fi
-                 sudo /opt/openquake/bin/pip install coverage
-
-                 export PYTHONPATH=\"\$PWD/oq-engine:$OPT_LIBS_PATH\"
-                 cd oq-engine
-
-                 /opt/openquake/bin/nosetests --with-coverage --cover-package=openquake.baselib --with-xunit --xunit-file=xunit-baselib.xml --with-doctest -vs openquake.baselib
-                 export MPLBACKEND=Agg; /opt/openquake/bin/nosetests --with-coverage --cover-package=openquake.hmtk --with-doctest --with-xunit --xunit-file=xunit-hmtk.xml -vs openquake.hmtk
-                 /opt/openquake/bin/nosetests --with-coverage --cover-package=openquake.engine --with-doctest --with-xunit --xunit-file=xunit-engine.xml -vs openquake.engine
-                 /opt/openquake/bin/nosetests --with-coverage --cover-package=openquake.server --with-doctest --with-xunit --xunit-file=xunit-server.xml -vs openquake.server
-                 /opt/openquake/bin/nosetests --with-coverage --cover-package=openquake.calculators --with-doctest --with-xunit --xunit-file=xunit-calculators.xml -vs openquake.calculators
-                 /opt/openquake/bin/nosetests --with-coverage --cover-package=openquake.risklib --with-doctest --with-xunit --xunit-file=xunit-risklib.xml -vs openquake.risklib
-                 /opt/openquake/bin/nosetests --with-coverage --cover-package=openquake.commonlib --with-doctest --with-xunit --xunit-file=xunit-commonlib.xml -vs openquake.commonlib
-                 /opt/openquake/bin/nosetests --with-coverage --cover-package=openquake.commands --with-doctest --with-xunit --xunit-file=xunit-commands.xml -vs openquake.commands 
-
-                 export MPLBACKEND=Agg; /opt/openquake/bin/nosetests --with-coverage --cover-package=openquake.hazardlib  --with-xunit --xunit-file=xunit-hazardlib.xml --with-doctest -vs openquake.hazardlib
-                 /opt/openquake/bin/coverage xml --include=\"openquake/*\"
-                 /opt/openquake/bin/python3 bin/oq dbserver stop"
-        scp "${lxc_ip}:oq-engine/xunit-*.xml" "out_${BUILD_UBUVER}/" || true
-        scp "${lxc_ip}:oq-engine/coverage.xml" "out_${BUILD_UBUVER}/" || true
-        scp "${lxc_ip}:/tmp/dbserver.log" "out_${BUILD_UBUVER}/" || true
-    else
-        if [ -d "$HOME/fake-data/$GEM_GIT_PACKAGE" ]; then
-            cp "$HOME/fake-data/$GEM_GIT_PACKAGE/"* "out_${BUILD_UBUVER}/"
-        fi
-    fi
-
-    # TODO: version check
-#    echo "NOW PRESS ENTER TO CONTINUE"
-#    read aaa
-    trap ERR
 
     return
 }
@@ -766,119 +679,6 @@ deps_check_or_clone () {
     fi
 }
 
-#
-#  devtest_run <branch> - main function of source test
-#      <branch>    name of the tested branch
-#
-devtest_run () {
-    local dep dep_item dep_type old_ifs branch="$1" branch_cur
-
-    if [ ! -d "out_${BUILD_UBUVER}" ]; then
-        mkdir "out_${BUILD_UBUVER}"
-    fi
-
-    if [ ! -d _jenkins_deps ]; then
-        mkdir _jenkins_deps
-    fi
-
-    #
-    #  dependencies repos
-    #
-    # in test sources different repositories and branches can be tested
-    # consistently: for each openquake dependency it try to use
-    # the same repository and the same branch OR the gem repository
-    # and the same branch OR the gem repository and the "master" branch
-    #
-    repo_id="$(repo_id_get)"
-    if [ "$repo_id" != "$GEM_GIT_REPO" ]; then
-        repos="git://${repo_id} ${GEM_GIT_REPO}"
-    else
-        repos="${GEM_GIT_REPO}"
-    fi
-    old_ifs="$IFS"
-    IFS=" "
-    for dep_item in $GEM_DEPENDS; do
-        dep="$(echo "$dep_item" | cut -d '|' -f 1)"
-        dep_pkg="$(echo "$dep_item" | cut -d '|' -f 2)"
-        dep_type="$(echo "$dep_item" | cut -d '|' -f 3)"
-        # if the deb is a subpackage we skip source check
-        if [ "$dep_type" == "sub" ]; then
-            continue
-        fi
-        found=0
-        branch_cur="$branch"
-        for repo in $repos; do
-            # search of same branch in same repo or in GEM_GIT_REPO repo
-            if git ls-remote --heads "$repo/${dep}.git" | grep -q "refs/heads/$branch_cur\$" ; then
-                deps_check_or_clone "$dep" "$repo/${dep}.git" "$branch_cur"
-                found=1
-                break
-            fi
-        done
-        # if not found it fallback in master branch of GEM_GIT_REPO repo
-        if [ $found -eq 0 ]; then
-            branch_cur="master"
-            deps_check_or_clone "$dep" "$repo/${dep}.git" "$branch_cur"
-        fi
-        pushd "_jenkins_deps/$dep"
-        commit="$(git log --pretty='format:%h' -1)"
-        popd
-        echo "dependency: $dep"
-        echo "repo:       $repo"
-        echo "branch:     $branch_cur"
-        echo "commit:     $commit"
-        echo
-        var_pfx="$(dep2var "$dep")"
-        if [ ! -f _jenkins_deps_info ]; then
-            touch _jenkins_deps_info
-        fi
-        if grep -q "^${var_pfx}_COMMIT=" _jenkins_deps_info; then
-            if ! grep -q "^${var_pfx}_COMMIT=$commit" _jenkins_deps_info; then
-                echo "ERROR: $repo -> $branch_cur changed during test:"
-                echo "before:"
-                grep "^${var_pfx}_COMMIT=" _jenkins_deps_info
-                echo "after:"
-                echo "${var_pfx}_COMMIT=$commit"
-                exit 1
-            fi
-        else
-            ( echo "${var_pfx}_COMMIT=$commit"
-              echo "${var_pfx}_PKG=$dep_pkg"
-              echo "${var_pfx}_REPO=$repo"
-              echo "${var_pfx}_BRANCH=$branch_cur"
-              echo "${var_pfx}_TYPE=$dep_type" ) >> _jenkins_deps_info
-        fi
-    done
-    IFS="$old_ifs"
-
-    sudo echo
-    sudo ${GEM_EPHEM_EXE} 2>&1 | tee /tmp/packager.eph.$$.log &
-    _lxc_name_and_ip_get /tmp/packager.eph.$$.log
-
-    _wait_ssh "$lxc_ip"
-    set +e
-    _devtest_innervm_run "$lxc_ip" "$branch"
-    inner_ret=$?
-
-    scp "${lxc_ip}:/tmp/webui*" "out_${BUILD_UBUVER}/"
-    scp "${lxc_ip}:ssh.log" "out_${BUILD_UBUVER}/devtest.history"
-
-    sudo $LXC_TERM -n "$lxc_name"
-
-    # NOTE: pylint returns errors too frequently to consider them a critical event
-    if pylint --rcfile pylintrc -f parseable openquake > pylint.txt ; then
-        echo "pylint exits without errors"
-    else
-        echo "WARNING: pylint exits with $? value"
-    fi
-    set -e
-    if [ -f /tmp/packager.eph.$$.log ]; then
-        rm /tmp/packager.eph.$$.log
-    fi
-
-    return $inner_ret
-}
-
 builddoc_run () {
     local dep dep_type dep_item old_ifs branch="$1" branch_cur
 
@@ -1161,12 +961,6 @@ while [ $# -gt 0 ]; do
             ;;
         -h|--help)
             usage 0
-            break
-            ;;
-        devtest)
-            # Sed removes 'origin/' from the branch name
-            devtest_run "$(echo "$2" | sed 's@.*/@@g')"
-            exit $?
             break
             ;;
         pkgtest)
